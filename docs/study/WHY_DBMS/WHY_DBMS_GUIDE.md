@@ -6,7 +6,9 @@
 >
 > 발표 자료: [WHY_DBMS_slides.pdf](./WHY_DBMS_slides.pdf) (26쪽), [왜 DBMS인가 — 발표 대본.pdf](./왜%20DBMS인가%20—%20발표%20대본.pdf)
 >
-> 자세한 버전은 [WHY_DBMS.md](./WHY_DBMS.md), 레디스 편은 [WHY_REDIS_GUIDE.md](./WHY_REDIS_GUIDE.md)입니다.
+> 터미널 시연: 이 폴더(`docs/study/WHY_DBMS/`)에서 `python3 -m dbms_demo.scenario --step`을 실행하면 같은 여섯 장면을 실제 프로그램(서버) 여러 개로 재현합니다. curl로 직접 쳐 보는 방법은 [dbms_demo/README.md](./dbms_demo/README.md)에 있습니다.
+>
+> 자세한 버전은 [WHY_DBMS.md](./WHY_DBMS.md), 레디스 편은 [WHY_REDIS_GUIDE.md](https://github.com/team1-mini-lab/mini-redis/blob/eungi/docs/study/docs/WHY_REDIS_GUIDE.md)입니다.
 
 ---
 
@@ -192,7 +194,7 @@ DBMS는 연결 층, 질의 처리 층, 접근 방법(인덱스) 층, 저장 층,
 
 DB에 오는 질문은 "이 키의 값 줘"만이 아니라 범위(`BETWEEN`), 정렬(`ORDER BY`), 최댓값이 흔합니다. 해시 테이블은 정확히 일치하는 키는 O(1)이지만 키를 뒤섞어 배치해서 범위를 못 찾고, 이진 트리는 정렬은 되지만 깊습니다. **B+ 트리**는 정렬을 유지하면서 노드 하나에 키를 수백 개 담아 3~4층이면 수억 건을 찾습니다. 그래서 거의 모든 관계형 DB의 기본 인덱스입니다.
 
-아래 표는 DBMS의 기능을 우리 단계와 연결하고, 그렇게 정한 이유를 적은 것입니다. 자세한 결정은 [DESIGN.md](../DESIGN.md) 4번에 있습니다.
+아래 표는 DBMS의 기능을 우리 단계와 연결하고, 그렇게 정한 이유를 적은 것입니다. 자세한 결정은 [DESIGN.md](../../DESIGN.md) 4번에 있습니다.
 
 | DBMS의 기능 | 푸는 장면 | 우리 단계 | 우리 방식 | 이유 | 상태 |
 | --- | --- | --- | --- | --- | --- |

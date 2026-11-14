@@ -1,5 +1,5 @@
 # 미니 DBMS 설계 문서
-개념 설명은 [DBMS_OVERVIEW.md](./DBMS_OVERVIEW.md)에 있습니다.
+개념 설명은 [DBMS_OVERVIEW.md](./study/DBMS_OVERVIEW.md)에 있습니다.
 
 ## 1. 요구사항
 

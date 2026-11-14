@@ -6,7 +6,7 @@
 > DBMS는 데이터를 다루는 일을 **프로그램 밖의 전담 시스템 하나로 빼내서**, 프로그램은 "무엇이 필요한지"만 말하고 저장, 검색, 보호는 DBMS가 책임지게 한다.
 
 이 문서는 "DBMS를 어떻게 쓰나(HOW)"보다 **"DBMS가 무슨 문제를 풀려고 나왔나(WHAT)"**를 설명합니다.
-범위와 단계는 [DESIGN.md](../DESIGN.md), 구현 개념은 [DBMS_STUDY.md](./DBMS_STUDY.md)를 참고합니다. 레디스 편은 [WHY_REDIS.md](./WHY_REDIS.md)입니다.
+범위와 단계는 [DESIGN.md](../../DESIGN.md), 구현 개념은 [DBMS_study.md](../DBMS_study.md)를 참고합니다. 레디스 편은 [WHY_REDIS.md](https://github.com/team1-mini-lab/mini-redis/blob/eungi/docs/study/docs/WHY_REDIS.md)입니다.
 
 ---
 
