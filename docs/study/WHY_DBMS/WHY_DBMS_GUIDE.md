@@ -2,6 +2,10 @@
 
 > 한 줄 요약: 파일 방식은 데이터를 다루는 방법(형식, 찾기, 보호)을 **각 프로그램 안에 묶어둔다.** DBMS는 그 일을 **프로그램 밖의 전담 시스템 하나로 빼낸다.**
 >
+> 직접 해 보기: [why_dbms_simulator.html](./why_dbms_simulator.html)을 브라우저로 열면 아래 여섯 장면을 "파일 직접"과 "DBMS" 방식으로 바꿔 가며 버튼으로 재현할 수 있습니다. 주소 끝에 `#scene-1` ~ `#scene-6`을 붙이면 해당 장면이 바로 열립니다.
+>
+> 발표 자료: [WHY_DBMS_slides.pdf](./WHY_DBMS_slides.pdf) (26쪽), [왜 DBMS인가 — 발표 대본.pdf](./왜%20DBMS인가%20—%20발표%20대본.pdf)
+>
 > 자세한 버전은 [WHY_DBMS.md](./WHY_DBMS.md), 레디스 편은 [WHY_REDIS_GUIDE.md](./WHY_REDIS_GUIDE.md)입니다.
 
 ---
