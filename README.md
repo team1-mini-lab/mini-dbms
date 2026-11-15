@@ -1,18 +1,30 @@
-# mini-dbms
+# 미니 DBMS
 
-세 단계(SQL 처리기 → B+ 트리 인덱스 → API 서버)로 만드는 미니 DBMS입니다.
+SQL 문장을 받아서 데이터를 파일에 저장하고, 다시 찾아 주는 작은 데이터베이스를 직접 만드는 과제입니다. 과제가 정한 대로 세 번에 나눠 만듭니다.
 
-| 문서 | 내용 |
+| 순서 | 만드는 것 | 하는 일 |
+| --- | --- | --- |
+| Phase 1 | SQL 처리기 | `INSERT`, `SELECT` 같은 문장을 읽고, 파일에 저장하거나 파일에서 꺼내 보여 줌 |
+| Phase 2 | B+ 트리 인덱스 | `id`로 찾을 때 파일을 처음부터 읽지 않고, 그 데이터가 있는 줄로 바로 감 |
+| Phase 3 | API 서버 | 다른 프로그램이 HTTP 요청으로 SQL을 보내면 결과를 돌려줌. 요청 여러 개를 동시에 받아 처리 |
+
+## 문서
+
+| 문서 | 이럴 때 읽기 |
 | --- | --- |
-| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | 과제 요구사항 |
-| [docs/DESIGN.md](docs/DESIGN.md) | 요구사항, 구조와 접점, 개발 단계, 결정 |
-| [docs/study/OVERVIEW.md](docs/study/OVERVIEW.md) | 전체 그림: 왜 DBMS인가, 세 Phase의 연결, 레디스와의 차이 |
-| [docs/study/WALKTHROUGH.md](docs/study/WALKTHROUGH.md) | 예시 하나로 따라가는 장면별 동작 |
-| [docs/study/WHY_DBMS/](docs/study/WHY_DBMS/WHY_DBMS_GUIDE.md) | 왜 DBMS인가: 설명자료, 시뮬레이터, 슬라이드, 발표 대본, [터미널 시연](docs/study/WHY_DBMS/dbms_demo/README.md) |
+| [과제 요구사항](docs/REQUIREMENTS.md) | 과제가 무엇을 요구하는지 알고 싶을 때 |
+| [설계](docs/DESIGN.md) | 무엇을 어떤 순서로 만들고, 팀이 무엇을 정했는지 알고 싶을 때 |
+| [전체 그림](docs/study/OVERVIEW.md) | 데이터베이스가 왜 필요한지, 세 번에 나눠 만드는 것이 서로 어떻게 이어지는지, 미니 레디스와 무엇이 다른지 알고 싶을 때 |
+| [예시로 따라가기](docs/study/WALKTHROUGH.md) | SQL 문장 하나가 들어와 파일에 저장되고 다시 찾아지기까지를 작은 예시로 한 단계씩 보고 싶을 때 |
+| [왜 DBMS인가](docs/study/WHY_DBMS/WHY_DBMS_GUIDE.md) | 프로그램마다 파일을 직접 다루면 어떤 문제가 생기고, 데이터베이스가 그걸 어떻게 푸는지 보고 싶을 때. 설명 글, 버튼으로 눌러 보는 페이지, 발표 슬라이드와 대본이 있음 |
 
-## 왜 DBMS인가 터미널 시연 실행
+## 터미널 시연
+
+"왜 DBMS인가"의 여섯 장면을 실제 프로그램 여러 개를 띄워 보여 줍니다. 먼저 파일을 직접 다루는 방식으로, 다음에 데이터베이스를 쓰는 방식으로 같은 순서를 돌립니다.
 
 ```bash
 cd docs/study/WHY_DBMS
-python3 -m dbms_demo.scenario --step    # Enter로 한 단계씩
+python3 -m dbms_demo.scenario --step    # Enter를 누를 때마다 한 장면씩
 ```
+
+`curl`로 하나씩 직접 요청해 보는 방법은 [시연 설명](docs/study/WHY_DBMS/dbms_demo/README.md)에 있습니다.
