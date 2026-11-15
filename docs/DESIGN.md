@@ -34,20 +34,25 @@
 ## 2. 구조
 
 ### 전체 흐름
+```mermaid
+flowchart TB
+    cli["cli.py<br/>터미널에서 SQL 파일 실행"]
+    client["다른 프로그램<br/>curl 등"]
+    server["server.py<br/>요청을 받아 Thread Pool의 스레드에 넘김<br/><b>3, 15단계</b>"]
+    engine["engine.execute(sql)<br/>lock: 한 번에 한 문장만<br/><b>16단계</b>"]
+    tok["토크나이저<br/>글자 → 단어<br/><b>4단계</b>"]
+    parser["파서<br/>단어 → Insert / Select 구조<br/><b>5단계</b>"]
+    exe["실행기<br/>검사, id 부여, 실행<br/><b>1, 6, 9단계</b>"]
+    index[("인덱스<br/>id → 파일 위치<br/><b>2, 10~12단계</b>")]
+    file[("users.tbl<br/>한 줄에 데이터 하나<br/><b>1, 7~8단계</b>")]
 
-```
-CLI (SQL 파일)          다른 프로그램
-   │                       │ HTTP 요청                 (접점 4)
-   │                       ▼
-   │                 API 서버: 요청 받기 → Thread Pool의 스레드가 처리
-   │                       │
-   └───────────┬───────────┘
-               │ execute(sql)                          (접점 1)
-               ▼
-엔진: lock → 토크나이저 → 파서 → 실행기                  (접점 2)
-               │                       │
-               ▼                       ▼
-     저장소: 테이블 파일             인덱스: B+ 트리 (접점 3)
+    client -- "POST /query" --> server
+    cli --> engine
+    server --> engine
+    engine --> tok --> parser --> exe
+    exe -- "WHERE id = ?" --> index
+    index -- "그 위치의 한 줄만 읽기" --> file
+    exe -- "INSERT, 다른 칸으로 찾기" --> file
 ```
 
 CLI와 API 서버는 같은 `execute(sql)`을 부릅니다. 그래서 서버를 붙일 때 엔진 코드를 고치지 않습니다.
