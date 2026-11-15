@@ -8,10 +8,10 @@ WHY_DBMS의 문제 1·2·3을 실제 프로그램(서버) 여러 개로 재현�
     2부  DBMS        각 프로그램이 SQL로 DBMS(SQLite)에 부탁함    (85xx 포트)
 
 실행
-    python -m dbms_demo.scenario               처음부터 끝까지 자동으로
-    python -m dbms_demo.scenario --step        Enter를 누를 때마다 한 단계씩 (발표용)
-    python -m dbms_demo.scenario --rows 200000 주문 수를 줄여서 빠르게 (기본 100만)
-    python -m dbms_demo.scenario --all         차별화 후보 A·B·C까지 모두
+    python -m why_dbms_demo.scenario               처음부터 끝까지 자동으로
+    python -m why_dbms_demo.scenario --step        Enter를 누를 때마다 한 단계씩 (발표용)
+    python -m why_dbms_demo.scenario --rows 200000 주문 수를 줄여서 빠르게 (기본 100만)
+    python -m why_dbms_demo.scenario --all         차별화 후보 A·B·C까지 모두
 
 서버는 이 스크립트가 직접 띄우고 끝나면 끈다. 데이터는 임시 폴더에 만든다.
 표준 라이브러리만 쓴다.
@@ -27,8 +27,8 @@ import unicodedata
 import urllib.error
 import urllib.request
 
-from dbms_demo.servers import ports, spawn
-from dbms_demo.store import make_store
+from why_dbms_demo.servers import ports, spawn
+from why_dbms_demo.store import make_store
 
 PARTS = [
     {"mode": "file", "title": "1부  파일 직접 (프로그램마다 파일을 직접 열고 씀)"},

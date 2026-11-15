@@ -1,6 +1,6 @@
 """정글마켓의 "프로그램" 하나. 같은 코드를 역할만 바꿔 여러 개 띄운다.
 
-    python -m dbms_demo.app --role 주문 --mode file --port 8402 --data ./demo_data
+    python -m why_dbms_demo.app --role 주문 --mode file --port 8402 --data ./demo_data
 
 --mode file   프로그램이 CSV 파일을 직접 읽고 쓴다
 --mode dbms   프로그램이 SQL로 DBMS(SQLite)에 부탁한다
@@ -14,7 +14,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-from dbms_demo.store import make_store
+from why_dbms_demo.store import make_store
 
 
 def make_handler(store, role, delay):

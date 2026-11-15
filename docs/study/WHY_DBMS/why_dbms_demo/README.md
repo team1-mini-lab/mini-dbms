@@ -34,22 +34,22 @@ total = db.execute("SELECT SUM(price) FROM orders")             # "price 칸의 
 
 ### 어디서 실행하나
 
-반드시 **`docs/study/WHY_DBMS/` 폴더에서** 실행합니다. `dbms_demo` 폴더가 바로 아래에 보이는 위치입니다.
+반드시 **`docs/study/WHY_DBMS/` 폴더에서** 실행합니다. `why_dbms_demo` 폴더가 바로 아래에 보이는 위치입니다.
 
 ```bash
 cd docs/study/WHY_DBMS      # 저장소 맨 위 폴더에서 시작했다면
-ls                          # dbms_demo 폴더가 보여야 함
+ls                          # why_dbms_demo 폴더가 보여야 함
 ```
 
-`dbms_demo` 폴더 안이나 저장소 맨 위 폴더에서 실행하면 `No module named 'dbms_demo'` 오류가 납니다. 파이썬이 `dbms_demo`라는 폴더를 현재 위치에서 찾기 때문입니다.
+`why_dbms_demo` 폴더 안이나 저장소 맨 위 폴더에서 실행하면 `No module named 'why_dbms_demo'` 오류가 납니다. 파이썬이 `why_dbms_demo`라는 폴더를 현재 위치에서 찾기 때문입니다.
 
 ### 실행 명령
 
 ```bash
-python3 -m dbms_demo.scenario --step        # Enter를 누를 때마다 한 장면씩 (발표할 때)
-python3 -m dbms_demo.scenario               # 처음부터 끝까지 자동으로
-python3 -m dbms_demo.scenario --rows 200000 # 주문을 20만 건만 만들어서 빠르게 (기본은 100만 건)
-python3 -m dbms_demo.scenario --all         # 차별화 후보 A·B·C까지 모두
+python3 -m why_dbms_demo.scenario --step        # Enter를 누를 때마다 한 장면씩 (발표할 때)
+python3 -m why_dbms_demo.scenario               # 처음부터 끝까지 자동으로
+python3 -m why_dbms_demo.scenario --rows 200000 # 주문을 20만 건만 만들어서 빠르게 (기본은 100만 건)
+python3 -m why_dbms_demo.scenario --all         # 차별화 후보 A·B·C까지 모두
 ```
 
 서버는 스크립트가 직접 띄우고, 끝나면 직접 끕니다. 터미널 하나면 됩니다.
@@ -213,8 +213,8 @@ os._exit(1)                               # COMMIT 전에 죽음 → 1·2번이 
 터미널 두 개를 열고, **둘 다 `docs/study/WHY_DBMS/` 폴더에서** 실행합니다. 처음 상태(주문 100만 건)를 만드는 데 1\~2초 걸립니다.
 
 ```bash
-python3 -m dbms_demo.servers --mode file    # 터미널 1: 파일 직접 방식 (84xx)
-python3 -m dbms_demo.servers --mode dbms    # 터미널 2: DBMS 방식 (85xx)
+python3 -m why_dbms_demo.servers --mode file    # 터미널 1: 파일 직접 방식 (84xx)
+python3 -m why_dbms_demo.servers --mode dbms    # 터미널 2: DBMS 방식 (85xx)
 ```
 
 | 프로그램 | 파일 직접 | DBMS |

@@ -1,7 +1,7 @@
 """curl로 직접 쳐 보기용: 한 방식의 프로그램들을 한꺼번에 띄운다.
 
-    python -m dbms_demo.servers --mode file     # 파일 직접 (84xx 포트)
-    python -m dbms_demo.servers --mode dbms     # DBMS      (85xx 포트)
+    python -m why_dbms_demo.servers --mode file     # 파일 직접 (84xx 포트)
+    python -m why_dbms_demo.servers --mode dbms     # DBMS      (85xx 포트)
 
 두 터미널에서 각각 띄우면 같은 curl을 포트만 바꿔 비교할 수 있다. Ctrl+C로 끈다.
 """
@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-from dbms_demo.store import make_store
+from why_dbms_demo.store import make_store
 
 ROLES = [("회원", 1), ("주문", 2), ("배송", 3), ("정산", 4), ("주문2", 5), ("마케팅", 6)]
 BASE = {"file": 8400, "dbms": 8500}
@@ -23,7 +23,7 @@ def ports(mode):
 
 
 def spawn(mode, role, port, data, delay):
-    return subprocess.Popen([sys.executable, "-m", "dbms_demo.app", "--mode", mode, "--role", role,
+    return subprocess.Popen([sys.executable, "-m", "why_dbms_demo.app", "--mode", mode, "--role", role,
                              "--port", str(port), "--data", data, "--delay", str(delay)],
                             cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

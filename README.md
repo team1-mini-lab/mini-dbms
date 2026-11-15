@@ -44,8 +44,8 @@ SELECT * FROM users WHERE id = 1;                   -- 꺼내기: 파일에서 i
 
 ```bash
 cd docs/study/WHY_DBMS
-python3 -m dbms_demo.scenario --step    # Enter를 누를 때마다 한 장면씩
-python3 -m dbms_demo.scenario --all     # 차별화 후보 A·B·C까지
+python3 -m why_dbms_demo.scenario --step    # Enter를 누를 때마다 한 장면씩
+python3 -m why_dbms_demo.scenario --all     # 차별화 후보 A·B·C까지
 ```
 
-`curl`로 하나씩 직접 요청해 보는 방법은 [시연 설명](docs/study/WHY_DBMS/dbms_demo/README.md)에 있습니다.
+`curl`로 하나씩 직접 요청해 보는 방법은 [시연 설명](docs/study/WHY_DBMS/why_dbms_demo/README.md)에 있습니다.
