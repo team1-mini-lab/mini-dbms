@@ -6,25 +6,19 @@
 
 ## 1. 한눈에 보기
 
-```mermaid
-flowchart TB
-    cli["cli.py<br/>터미널에서 SQL 파일 실행"]
-    client["다른 프로그램<br/>curl 등"]
-    server["server.py<br/>요청을 받아 Thread Pool의 스레드에 넘김<br/><b>3, 15단계</b>"]
-    engine["engine.execute(sql)<br/>lock: 한 번에 한 문장만<br/><b>16단계</b>"]
-    tok["토크나이저<br/>글자 → 단어<br/><b>4단계</b>"]
-    parser["파서<br/>단어 → Insert / Select 구조<br/><b>5단계</b>"]
-    exe["실행기<br/>검사, id 부여, 실행<br/><b>1, 6, 9단계</b>"]
-    index[("인덱스<br/>id → 파일 위치<br/><b>2, 10~12단계</b>")]
-    file[("users.tbl<br/>한 줄에 데이터 하나<br/><b>1, 7~8단계</b>")]
-
-    client -- "POST /query" --> server
-    cli --> engine
-    server --> engine
-    engine --> tok --> parser --> exe
-    exe -- "WHERE id = ?" --> index
-    index -- "그 위치의 한 줄만 읽기" --> file
-    exe -- "INSERT, 다른 칸으로 찾기" --> file
+```
+cli.py (터미널)          다른 프로그램 (curl 등)
+   │                        │ POST /query
+   │                        ▼
+   │                   server.py                       [3, 15단계]
+   └──────────┬─────────────┘
+              ▼
+      engine.execute(sql)   ← lock: 한 번에 한 문장      [16단계]
+              │
+     토크나이저 → 파서 → 실행기                          [1, 4~6단계]
+         │                 │
+         ▼                 ▼
+   users.tbl (파일)    인덱스 (id → 파일 위치)            [1, 7~8단계 / 2, 10~12단계]
 ```
 
 `[ ]` 안의 숫자는 [설계](../DESIGN.md)의 개발 단계입니다.

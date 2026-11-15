@@ -44,15 +44,26 @@ for line in open("orders.csv"):
 
 ### 문제 1: 모양을 바꾸면 다른 코드가 깨진다
 
-`order.py`를 고쳐서 쿠폰 칸을 하나 넣습니다.
+`order.py`를 고쳐서 가격 앞에 쿠폰 칸을 하나 넣습니다. 이제 새 주문은 이렇게 저장됩니다.
 
 ```
-3,park,모니터,WELCOME,300000
+orders.csv
+1,kim,키보드,50000
+2,lee,마우스,20000
+3,park,모니터,WELCOME,300000      ← 새 줄은 5칸
 ```
 
-`report.py`와 `delivery.py`는 한 줄을 4칸으로 나누려다 5칸이 나와서 멈춥니다(`ValueError`). 두 파일은 한 글자도 안 고쳤습니다.
+`report.py`는 그대로입니다. 3번째 줄을 읽는 순간 이렇게 됩니다.
 
-**왜**: "한 줄은 4칸, 4번째가 가격"이라는 파일 모양을 세 코드가 **각자** 알고 있기 때문입니다. 한 곳에서 바꾸면 나머지 두 곳이 옛 모양으로 읽습니다.
+```python
+id, user, product, price = "3,park,모니터,WELCOME,300000".split(",")
+# 쉼표로 나누면 5개인데, 받을 변수는 4개
+# ValueError: too many values to unpack (expected 4)
+```
+
+`report.py`와 `delivery.py`는 한 글자도 안 고쳤는데 멈췄습니다.
+
+**왜**: "한 줄은 4칸, 4번째가 가격"이라는 파일 모양이 `order.py`, `report.py`, `delivery.py` 세 곳에 **따로** 적혀 있기 때문입니다. `order.py`만 5칸으로 바꾸면, 나머지 두 곳은 여전히 4칸이라고 믿고 읽습니다.
 
 ### 문제 2: 데이터가 많아지면 느려진다
 
@@ -167,9 +178,3 @@ db.execute("SELECT * FROM orders WHERE user = 'kim'")
 | 문제 1. 모양을 바꾸면 깨짐 | ① 주소를 바꿨는데 택배는 옛날 집으로, ② 칸 추가 후 정산이 멈춤, ③ 새 질문마다 코드를 새로 짬 |
 | 문제 2. 많으면 느림 | ④ 100만 건에서 찾기 |
 | 문제 3. 동시에 쓰면 망가짐 | ⑤ 남은 1개를 두 명에게, ⑥ 저장하다 꺼지면 돈만 빠짐 |
-
-## 참고 자료
-
-- IBM, "History of IMS: Beginnings at NASA"
-- Donald Chamberlin, "50 Years of Queries", Communications of the ACM
-- E. F. Codd, "A Relational Model of Data for Large Shared Data Banks", CACM 13(6), 1970
