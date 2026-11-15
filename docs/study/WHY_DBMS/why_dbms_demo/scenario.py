@@ -116,12 +116,12 @@ class Demo:
         r = {}
 
         # 문제 1 형식
-        self.say("문제 1  정산이 매출을 계산 → 주문팀이 쿠폰 칸 추가 → 정산을 다시 실행")
+        self.say("문제 1  정산이 매출을 계산 → 주문팀이 쿠폰 열 추가 → 정산을 다시 실행")
         self.pause()
         _, v = call("GET", self.p["정산"], "/revenue")
         self.show("정산", f"매출 {v['revenue']:,}원")
         _, c = call("POST", self.p["주문"], "/admin/coupon")
-        self.show("주문", f"쿠폰 칸 추가 → {c.get('new_format') or c.get('sql')}")
+        self.show("주문", f"쿠폰 열 추가 → {c.get('new_format') or c.get('sql')}")
         code, v2 = call("GET", self.p["정산"], "/revenue")
         if code == 200:
             self.show("정산", f"매출 {v2['revenue']:,}원   (그대로 동작)")
@@ -130,11 +130,11 @@ class Demo:
             self.note(f"  멈춘 줄: {v2.get('where')}")
         r["revenue_after"] = "정상" if code == 200 else f"멈춤({code})"
         if file:
-            self.note("→ \"칸이 네 개, 넷째 칸이 가격\"이라는 약속이 정산 코드에 따로 적혀 있다")
-            self.note("  주문팀이 칸을 바꿀 때마다, 이 파일을 읽는 코드를 모두 같이 고쳐야 한다")
+            self.note("→ \"열이 네 개, 넷째 열이 가격\"이라는 약속이 정산 코드에 따로 적혀 있다")
+            self.note("  주문팀이 열을 바꿀 때마다, 이 파일을 읽는 코드를 모두 같이 고쳐야 한다")
         else:
-            self.note("→ 정산은 칸 번호가 아니라 이름(price)으로 요청: SELECT SUM(price) FROM orders")
-            self.note("  주문팀이 ALTER TABLE로 칸을 추가해도 정산 코드는 고칠 게 없다")
+            self.note("→ 정산은 열 번호가 아니라 이름(price)으로 요청: SELECT SUM(price) FROM orders")
+            self.note("  주문팀이 ALTER TABLE로 열을 추가해도 정산 코드는 고칠 게 없다")
 
         # 문제 2 검색
         target = int(self.rows * 0.9)
@@ -248,7 +248,7 @@ def _l(t, n):
 def summary(f, d, all_scenes=False):
     ms = lambda x: f"{x:,.1f}ms"
     core = [
-        ("문제 1  쿠폰 칸 추가 후 정산", f["revenue_after"], d["revenue_after"]),
+        ("문제 1  쿠폰 열 추가 후 정산", f["revenue_after"], d["revenue_after"]),
         ("문제 2  주문번호로 찾기", ms(f["by_id"]), ms(d["by_id"])),
         ("문제 2  user로 세기 (인덱스 없음, 둘 다 전체)", ms(f["by_user"]), ms(d["by_user"])),
         ("문제 3  재고 1개, 산 사람", f"{f['sold']}명", f"{d['sold']}명"),

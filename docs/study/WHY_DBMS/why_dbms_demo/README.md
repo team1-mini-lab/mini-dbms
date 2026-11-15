@@ -18,11 +18,11 @@
 ```python
 # 1부: 파일 직접 (store.py의 FileStore.revenue)
 for line in open("orders.csv"):
-    order_id, user, product, price = line.strip().split(",")   # "칸이 4개, 4번째가 가격"이라고 코드에 적혀 있음
+    order_id, user, product, price = line.strip().split(",")   # "열이 4개, 4번째가 가격"이라고 코드에 적혀 있음
     total += int(price)
 
 # 2부: DBMS (store.py의 DbStore.revenue)
-total = db.execute("SELECT SUM(price) FROM orders")             # "price 칸의 합"만 말함
+total = db.execute("SELECT SUM(price) FROM orders")             # "price 열의 합"만 말함
 ```
 
 **알아 둘 것**
@@ -68,7 +68,7 @@ python3 -m why_dbms_demo.scenario --all         # 차별화 후보 A·B·C까지
 
 ```
                                                 파일 직접           DBMS
-  문제 1  쿠폰 칸 추가 후 정산                  멈춤(500)           정상
+  문제 1  쿠폰 열 추가 후 정산                  멈춤(500)           정상
   문제 2  주문번호로 찾기                       357.1ms             0.6ms
   문제 2  user로 세기 (인덱스 없음, 둘 다 전체) 291.9ms             53.6ms
   문제 3  재고 1개, 산 사람                     2명                 1명
@@ -80,21 +80,21 @@ python3 -m why_dbms_demo.scenario --all         # 차별화 후보 A·B·C까지
 
 장면마다 실제 코드(`store.py`)를 짧게 보여 줍니다. 위가 파일 직접(`FileStore`), 아래가 DBMS(`DbStore`)입니다. 3절에서 `curl`로 같은 일을 직접 해 볼 수 있습니다.
 
-### 문제 1 · 칸 하나 추가했더니 정산이 멈춘다
+### 문제 1 · 열 하나 추가했더니 정산이 멈춘다
 
 ```
 orders.csv  바꾸기 전:  1,user1,마우스,2000
-            바꾼 뒤:    1,user1,마우스,500,2000      ← 주문 프로그램이 가격 앞에 쿠폰 칸을 넣음
+            바꾼 뒤:    1,user1,마우스,500,2000      ← 주문 프로그램이 가격 앞에 쿠폰 열을 넣음
 ```
 
 ```python
-# 파일 직접: 정산 프로그램 (칸이 4개라고 정해 둠)
+# 파일 직접: 정산 프로그램 (열이 4개라고 정해 둠)
 order_id, user, product, price = line.split(",")
 # 바꾼 뒤에는 5개를 4개에 담으려다 멈춤
 # ValueError: too many values to unpack (expected 4)
 
-# DBMS: 정산 프로그램 (칸을 이름으로 요청)
-db.execute("SELECT SUM(price) FROM orders")    # 쿠폰 칸이 생겨도 그대로 동작
+# DBMS: 정산 프로그램 (열을 이름으로 요청)
+db.execute("SELECT SUM(price) FROM orders")    # 쿠폰 열이 생겨도 그대로 동작
 ```
 
 ### 문제 2 · 주문 100만 건에서 찾기
@@ -236,19 +236,19 @@ python3 -m why_dbms_demo.servers --mode dbms    # 터미널 2: DBMS 방식 (85xx
 
 ```bash
 curl localhost:8404/revenue                  # 정산: 매출 합계 (정상)
-curl -X POST localhost:8402/admin/coupon     # 주문팀: 쿠폰 칸 추가
+curl -X POST localhost:8402/admin/coupon     # 주문팀: 쿠폰 열 추가
 curl localhost:8404/revenue                  # 정산: 다시 계산
 ```
 
 - 파일 직접: 두 번째 정산이 `500`이고, `"error"`에 `ValueError: too many values to unpack (expected 4)`, `"where"`에 멈춘 코드 줄이 나옵니다.
-- DBMS: 칸이 생겨도 매출이 그대로 나옵니다.
+- DBMS: 열이 생겨도 매출이 그대로 나옵니다.
 
 #### 문제 2
 
 ```bash
 curl localhost:8402/orders/900000            # 주문번호 900000 찾기 (뒤쪽)
 curl localhost:8402/orders/10                # 주문번호 10 찾기 (앞쪽)
-curl "localhost:8402/orders?user=user77"     # user77의 주문 세기 (user 칸에는 인덱스 없음)
+curl "localhost:8402/orders?user=user77"     # user77의 주문 세기 (user 열에는 인덱스 없음)
 ```
 
 - 파일 직접: `"scanned_lines"`가 읽은 줄 수입니다. 900000번은 900,000줄, 10번은 10줄을 읽습니다. 뒤쪽 주문일수록 오래 걸립니다.
@@ -325,4 +325,4 @@ curl localhost:8404/consistency
 | `servers.py` | 한 방식의 프로그램 여섯 개를 한꺼번에 띄움. 죽은 프로그램은 다시 띄움 (3절 curl 실습용) |
 | `scenario.py` | 두 방식을 차례로 띄워 같은 순서로 요청하고 결과를 비교해 보여 줌 (1절 시연용). 기본은 문제 1·2·3, `--all`이면 차별화 A·B·C까지 |
 
-`store.py`의 `FileStore`는 일부러 "파일로 데이터를 다루던 시절의 프로그램"처럼 짰습니다. 예를 들어 `revenue()`는 "칸이 네 개"라고 가정한 채 1년 전에 짠 정산 코드라는 설정입니다. 고치지 말고, 그대로 깨지는 모습을 보는 것이 시연의 목적입니다.
+`store.py`의 `FileStore`는 일부러 "파일로 데이터를 다루던 시절의 프로그램"처럼 짰습니다. 예를 들어 `revenue()`는 "열이 네 개"라고 가정한 채 1년 전에 짠 정산 코드라는 설정입니다. 고치지 말고, 그대로 깨지는 모습을 보는 것이 시연의 목적입니다.

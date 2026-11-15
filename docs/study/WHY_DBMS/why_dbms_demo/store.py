@@ -5,7 +5,7 @@ DbStore    DBMS: 프로그램은 SQL로 부탁만 한다. 파일 형식, 인덱�
            (미니 DBMS가 아직 없어서 파이썬 내장 SQLite를 DBMS 자리에 둔다.)
 
 시연용이라 일부러 단순하게, 그리고 "그 시절 프로그램"처럼 짰다.
-예를 들어 FileStore.revenue()는 "칸이 네 개"라고 가정한 채로 1년 전에 짠 코드다.
+예를 들어 FileStore.revenue()는 "열이 네 개"라고 가정한 채로 1년 전에 짠 코드다.
 """
 import json
 import os
@@ -72,7 +72,7 @@ class FileStore:
 
     # ── 장면 ② 형식 ───────────────────────────────────
     def add_coupon_column(self):
-        """주문팀: orders.csv의 가격 앞에 쿠폰 칸을 끼워 넣는다."""
+        """주문팀: orders.csv의 가격 앞에 쿠폰 열을 끼워 넣는다."""
         src, tmp = self._p("orders.csv"), self._p("orders.tmp")
         with open(src, encoding="utf-8") as r, open(tmp, "w", encoding="utf-8") as w:
             for line in r:
@@ -86,7 +86,7 @@ class FileStore:
         return {"changed": "orders.csv", "new_format": "id,user,product,coupon,price"}
 
     def revenue(self):
-        """정산 프로그램 (1년 전 작성): 칸이 네 개라고 가정한다."""
+        """정산 프로그램 (1년 전 작성): 열이 네 개라고 가정한다."""
         total = 0
         for line in open(self._p("orders.csv"), encoding="utf-8"):
             order_id, user, product, price = line.strip().split(",")   # ← 형식 지식이 코드에
@@ -221,7 +221,7 @@ class DbStore:
         return {"sql": "ALTER TABLE orders ADD COLUMN coupon INTEGER"}
 
     def revenue(self):
-        """정산 프로그램: 칸 번호가 아니라 이름(price)으로 요청한다."""
+        """정산 프로그램: 열 번호가 아니라 이름(price)으로 요청한다."""
         return {"revenue": self._c().execute("SELECT SUM(price) FROM orders").fetchone()[0],
                 "sql": "SELECT SUM(price) FROM orders"}
 
