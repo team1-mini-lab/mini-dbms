@@ -169,7 +169,6 @@ db.execute("SELECT * FROM orders WHERE user = 'kim'")
 | 터미널 시연 | [시연 설명](./dbms_demo/README.md) | 이 폴더에서 `python3 -m dbms_demo.scenario --step` |
 | 버튼으로 눌러 보는 페이지 | [why_dbms_simulator.html](./why_dbms_simulator.html) | 내려받아 브라우저로 열기 |
 | 발표 슬라이드 | [WHY_DBMS_slides.pdf](./WHY_DBMS_slides.pdf) | GitHub에서 바로 열림 |
-| 발표 대본 | [왜 DBMS인가 — 발표 대본.pdf](./왜%20DBMS인가%20—%20발표%20대본.pdf) | GitHub에서 바로 열림 |
 
 시연과 발표 자료는 세 문제를 장면 여섯 개로 나눠 보여 줍니다.
 
