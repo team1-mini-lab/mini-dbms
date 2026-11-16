@@ -95,7 +95,7 @@ curl -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users WHERE 
 
 다 봤으면 터미널 1에서 `Ctrl + C`로 서버를 끕니다.
 
-## 나중에 바꿀 곳 (Phase 3: 15~17단계)
+## 나중에 바꿀 곳 (Phase 3: 15\~17단계)
 
 | 지금 (임시) | 언제 | 어떻게 바뀌나 | 안 고쳐도 되는 곳 |
 | --- | --- | --- | --- |

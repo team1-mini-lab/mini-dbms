@@ -47,7 +47,7 @@ engine.py는 직접 SQL을 자르거나 파일을 쓰지 않습니다. **lock을
 | engine.py | lock을 걸고 토크나이저 → 파서 → 실행기를 차례로 부름 | 1, 16 |
 | tokenizer.py | SQL 글자를 단어로 자름 | 4 |
 | parser.py | 단어를 보고 `Insert`/`Select` 구조로 만듦 | 5 |
-| executor.py | 열 검사, id 붙이기, 세 갈래로 나눠 storage와 bptree에 일 시키기 | 6, 9 (1~5단계에는 `engine.py` 안에 있음) |
+| executor.py | 열 검사, id 붙이기, 세 갈래로 나눠 storage와 bptree에 일 시키기 | 6, 9 (1\~5단계에는 `engine.py` 안에 있음) |
 | storage.py | 파일 끝에 쓰기, 위치로 한 줄 읽기, 처음부터 읽기 | 1, 7, 8 |
 | bptree.py | "id → 파일 위치" 목차. 2단계엔 `index.py`(dict), 10\~12단계에 `bptree.py`(B+ 트리)로 바꿈. 둘 다 `insert`/`search` | 2, 10\~12 |
 

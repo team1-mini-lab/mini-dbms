@@ -1,6 +1,6 @@
-# 인수인계: 지도 만들기(0~3단계)
+# 인수인계: 지도 만들기(0\~3단계)
 
-**누가**: 은기 · **브랜치**: `eungi` · **다음 담당**: Phase 1(SQL 처리기 4~9단계), Phase 2(B+ 트리 10~14단계)
+**누가**: 은기 · **브랜치**: `eungi` · **다음 담당**: Phase 1(SQL 처리기 4\~9단계), Phase 2(B+ 트리 10\~14단계)
 
 처음 보는 분은 이 문서 하나만 읽고 시작하면 됩니다. 자세한 건 단계별 문서([STEP0](./STEP0.md) · [STEP1](./STEP1.md) · [STEP2](./STEP2.md) · [STEP3](./STEP3.md))와 [결정 기록](./DECISIONS.md)에 있습니다.
 
@@ -71,14 +71,14 @@ server.py┘     │
 | Phase 1 | 4. 토크나이저 | 새 `tokenizer.py`, `engine.py`의 문장 나누기 | 지금 `sql.split(";")` → "단어로 자른 뒤 `;`로 나누기". 글자 값 안의 `;`, `,`, `''`(따옴표 안의 따옴표) |
 | Phase 1 | 5. 파서 | `parser.py` | 돌려주는 모양은 접점 2 그대로 (`Insert`, `Select`, `Where`). 그러면 실행 부분은 안 고쳐도 됨 |
 | Phase 1 | 6. 열 구성 검사 | `engine.py` (또는 새 `executor.py`) | 타입 검사 추가. `SELECT 열들` 구현 (지금은 오류로 막아 둠) |
-| Phase 1 | 7~9 | `storage.py`, `engine.py` | 저장 형식은 이미 JSON 배열. 8단계: 빈 줄/깨진 줄 처리 |
-| Phase 2 | 10~12. B+ 트리 | 새 `bptree.py`, `engine.py`에서 `DictIndex`를 부르는 두 줄만 | `insert(id, 위치)`, `search(id)` → 없으면 `None`. **키는 항상 숫자**, 같은 키를 다시 넣으면 **덮어쓰기** |
-| Phase 2 | 13~14 | 새 스크립트 | 100만 건은 CLI로 넣기 (**서버는 끈 상태로**). 다른 열 검색은 이미 거르기가 돼 있어서 바로 비교 가능 |
+| Phase 1 | 7\~9 | `storage.py`, `engine.py` | 저장 형식은 이미 JSON 배열. 8단계: 빈 줄/깨진 줄 처리 |
+| Phase 2 | 10\~12. B+ 트리 | 새 `bptree.py`, `engine.py`에서 `DictIndex`를 부르는 두 줄만 | `insert(id, 위치)`, `search(id)` → 없으면 `None`. **키는 항상 숫자**, 같은 키를 다시 넣으면 **덮어쓰기** |
+| Phase 2 | 13\~14 | 새 스크립트 | 100만 건은 CLI로 넣기 (**서버는 끈 상태로**). 다른 열 검색은 이미 거르기가 돼 있어서 바로 비교 가능 |
 | Phase 3 (은기) | 16 → 15 → 17 | `engine.py`(lock), `server.py` | lock을 먼저 걸고 Thread Pool. 서버 응답은 `_send` 하나로 |
 
 ## 6. 회의에서 정할 것
 
-1. 파일 나누기와 접점 1~4를 이대로 갈지 (DESIGN 2절)
+1. 파일 나누기와 접점 1\~4를 이대로 갈지 (DESIGN 2절)
 2. DESIGN 4절의 "전체" 결정 4줄 (파이썬, 지도부터, 표준 라이브러리만, CLI와 서버가 같은 `execute`)
 3. 위 4번의 "쓰는 건 하나만" 규칙으로 갈지
 4. API에서 SQL 오류를 400으로 할지 200 + 결과 안 `error`로 할지 (9단계 전까지)
