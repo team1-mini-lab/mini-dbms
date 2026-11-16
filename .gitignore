@@ -1,10 +1,3 @@
-# 파이썬
+data/*.tbl
 __pycache__/
-*.pyc
-.venv/
-
-# why_dbms_demo.servers가 만드는 시연 데이터 (주문 100만 건)
-demo_data/
-
-# macOS
 .DS_Store
