@@ -62,6 +62,9 @@ CLI와 API 서버는 같은 `execute(sql)`을 부릅니다. 그래서 서버를 
 | `INSERT INTO users (name, age) VALUES ('현지', 25);` | `Insert(table="users", columns=["name", "age"], values=["현지", 25])` |
 | `SELECT name FROM users WHERE id = 3;` | `Select(table="users", columns=["name"], where=Where("id", "=", 3))` |
 | `SELECT * FROM users;` | `Select(table="users", columns=["*"], where=None)` |
+| `INSERT INTO users VALUES ('현지', 25);` (열 이름 생략) | `Insert(table="users", columns=None, values=["현지", 25])` |
+
+실행기는 `columns`에 적힌 열 이름을 보고 값을 `schema.json`의 열 순서에 맞춰 배치합니다. `columns`가 `None`이면 `schema.json`의 열 순서(id 제외) 그대로 넣습니다. 그래서 `INSERT INTO users (age, name) VALUES (25, '현지')`처럼 순서를 바꿔 적어도 똑같이 저장됩니다.
 
 ### 접점 3: 인덱스 함수
 
@@ -91,9 +94,11 @@ CLI와 API 서버는 같은 `execute(sql)`을 부릅니다. 그래서 서버를 
 | 단계 | 만드는 것 | 이것이 보이면 완료 | 요구사항 |
 | --- | --- | --- | --- |
 | 0. 준비 | 프로젝트 폴더, `schema.json`, 예제 SQL 파일 | 폴더 구조와 예제 파일이 있음 | |
-| 1. CLI 뼈대 | SQL 파일 읽기 → 임시 파서(공백·쉼표로 나누는 수준) → `INSERT`는 파일에 한 줄 추가, `SELECT *`는 전체 출력. ID 자동 부여 | `INSERT` 두 번 후 `SELECT * FROM users;`를 하면 ID 1, 2가 붙은 줄이 나옴 | R1, R2, R3, R4, R6, R16 |
+| 1. CLI 뼈대 | SQL 파일 읽기 → 임시 파서(공백·쉼표로 나누는 수준) → `INSERT`는 파일에 한 줄 추가, `SELECT *`는 전체 출력. ID 자동 부여 | `INSERT` 두 번 후 `SELECT * FROM users;`를 하면 ID 1, 2가 붙은 줄이 나옴. CLI를 다시 실행해도 다음 ID가 3부터 이어짐 | R1, R2, R3, R4, R6, R16 |
 | 2. 임시 인덱스 | 파이썬 `dict`(ID → 파일 위치)로 `WHERE id = ?` 처리 | `WHERE id = 2`에 그 줄 하나만 나오고, 인덱스를 썼다고 표시됨 | R8 |
 | 3. API 뼈대 | `POST /query` 서버 (아직 스레드 하나). CLI와 같은 `execute(sql)`을 부름 | curl로 보낸 SQL의 결과가 CLI와 같음 | R11, R14 |
+
+CLI는 실행할 때마다 새로 켜지므로, 1단계부터 엔진을 만들 때 테이블 파일을 한 번 읽어 다음 ID와 인덱스를 다시 만듭니다. 8단계(껐다 켜기)는 이것을 서버 재시작과 오류 상황까지 넓히는 단계입니다.
 
 여기까지가 지도입니다. 과제 전체의 흐름이 한 번 돌아갑니다.
 
@@ -131,6 +136,8 @@ CLI와 API 서버는 같은 `execute(sql)`을 부릅니다. 그래서 서버를 
 | 15. Thread Pool | 스레드 하나 서버 → 작업 큐 + 미리 만든 스레드 N개 | 동시에 보낸 요청이 여러 스레드 이름으로 처리된 로그가 보임 | R12 |
 | 16. lock | 엔진 실행을 lock으로 감싸기 | 동시에 `INSERT`를 100번 보내도 ID가 1\~100으로 빠짐없이, 겹치지 않음 | R13 |
 | 17. API 오류 응답 | 잘못된 요청에 JSON 오류로 답함 | 없는 주소, JSON이 아닌 본문 등에 HTML이 아니라 JSON 오류가 옴 | R17 |
+
+16단계(lock)는 15단계보다 먼저 해도 됩니다. 15단계를 먼저 하면 그 사이 서버는 스레드가 여럿인데 lock이 없어서 같은 ID가 두 번 붙을 수 있습니다. 스레드 하나인 서버에 lock을 먼저 걸어도 문제가 없으므로, lock → Thread Pool 순서로 하면 Thread Pool을 붙이는 순간부터 안전합니다. (제안)
 
 ### 마무리
 
