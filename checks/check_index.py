@@ -15,7 +15,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 module_name = sys.argv[1] if len(sys.argv) > 1 else "index"
 class_name = sys.argv[2] if len(sys.argv) > 2 else "DictIndex"
-Index = getattr(importlib.import_module(module_name), class_name)
+try:
+    Index = getattr(importlib.import_module(module_name), class_name)
+except ModuleNotFoundError:
+    sys.exit(f"{module_name}.py 파일이 아직 없습니다. B+ 트리를 만든 뒤에 다시 실행하세요.\n"
+             f"지금 있는 dict 인덱스를 확인하려면: python3 checks/check_index.py")
+except AttributeError:
+    sys.exit(f"{module_name}.py 안에 {class_name} 클래스가 없습니다. 클래스 이름을 확인하세요.")
 print(f"확인하는 클래스: {module_name}.{class_name}\n")
 
 results = []
@@ -37,7 +43,7 @@ for k in range(1, 10001):
 check("1~10000을 순서대로 넣고 모두 찾음", all(idx.search(k) == k * 18 for k in range(1, 10001)))
 check("없는 키 0, 10001은 None", idx.search(0) is None and idx.search(10001) is None)
 
-# 3. 무작위 순서 (11단계 완료 기준)
+# 3. 무작위 순서 (Phase 2(11단계) 완료 기준)
 idx = Index()
 keys = list(range(1, 10001))
 random.shuffle(keys)

@@ -24,13 +24,16 @@ class Engine:
                 last = max(last, row[0])
             self.next_id[table] = last + 1
 
-    def execute(self, sql):
+    def execute(self, sql, stop_on_error=False):
+        """CLI는 기본값(틀린 문장이 있어도 계속), 서버는 stop_on_error=True(첫 오류에서 멈춤)로 부른다."""
         results = []
-        for stmt in [s.strip() for s in sql.split(";") if s.strip()]:   # 임시: 4단계에서 토큰 뒤에 나눔
+        for stmt in [s.strip() for s in sql.split(";") if s.strip()]:   # 임시: Phase 1(4단계)에서 토큰 뒤에 나눔
             try:
                 results.append(self._run(parse(stmt)))
             except Exception as e:
                 results.append({"type": "error", "message": str(e)})
+                if stop_on_error:
+                    break                                 # 뒤 문장은 실행하지 않음
         return results
 
     def _run(self, cmd):

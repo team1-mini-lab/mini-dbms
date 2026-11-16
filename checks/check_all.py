@@ -5,7 +5,7 @@
 
 임시 폴더에서 돌리므로 data/users.tbl은 건드리지 않습니다.
 "지금 통과" 줄이 하나라도 실패로 바뀌면, 내가 바꾼 곳이 기존 동작을 깨뜨린 것입니다.
-"나중 단계" 줄은 그 단계가 끝나면 통과해야 합니다.
+"Phase 1(4단계)"처럼 표시된 줄은 그 단계가 끝나면 통과해야 합니다.
 """
 import os
 import shutil
@@ -30,7 +30,7 @@ now, later = [], []
 def check(when, name, ok):
     (now if when == "지금" else later).append(ok)
     label = "통과" if ok else ("실패" if when == "지금" else "아직")
-    print(f"{label}  [{when:6}] {name}")
+    print(f"{label}  [{when:14}] {name}")
 
 
 e = Engine(tmp)
@@ -64,15 +64,15 @@ e = Engine(tmp)
 check("지금", "다시 켜도 다음 id가 이어짐 (6)", run(e, "INSERT INTO users (name, age) VALUES ('c', 3);")[0].get("id") == 6)
 check("지금", "다시 켜도 인덱스로 id 2를 찾음", run(e, "SELECT * FROM users WHERE id = 2;")[0].get("rows") == [[2, "민수", 31]])
 
-# 나중 단계
+# 다음 Phase에서 통과해야 하는 것
 r = run(e, "INSERT INTO users (name, age) VALUES ('a;b', 1);")
-check("4단계", "글자 안의 ; → 문장 하나로 저장", len(r) == 1 and r[0]["type"] == "insert")
+check("Phase 1(4단계)", "글자 안의 ; → 문장 하나로 저장", len(r) == 1 and r[0]["type"] == "insert")
 r = run(e, "INSERT INTO users (name, age) VALUES ('김,철수', 1);")
-check("4단계", "글자 안의 쉼표 → 그대로 저장", r[0]["type"] == "insert")
+check("Phase 1(4단계)", "글자 안의 쉼표 → 그대로 저장", r[0]["type"] == "insert")
 r = run(e, "SELECT name FROM users WHERE id = 2;")[0]
-check("6단계", "SELECT name → 이름 열만", r.get("rows") == [["민수"]])
+check("Phase 1(6단계)", "SELECT name → 이름 열만", r.get("rows") == [["민수"]])
 r = run(e, "INSERT INTO users (name, age) VALUES ('d', 'abc');")[0]
-check("6단계", "숫자 열에 글자 → 오류", r["type"] == "error")
+check("Phase 1(6단계)", "숫자 열에 글자 → 오류", r["type"] == "error")
 
 shutil.rmtree(tmp)
-print(f"\n지금 통과해야 하는 것: {sum(now)}/{len(now)}   나중 단계: {sum(later)}/{len(later)}")
+print(f"\n지금 통과해야 하는 것: {sum(now)}/{len(now)}   다음 Phase에서 통과할 것: {sum(later)}/{len(later)}")

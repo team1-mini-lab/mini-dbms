@@ -20,7 +20,13 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError) as e:   # JSON 오류·UnicodeDecodeError는 ValueError의 하위
             self._send(400, {"error": {"code": "bad_request", "message": str(e)}})   # 모양은 17단계에서 확정
             return
-        self._send(200, {"results": engine.execute(sql)})
+        results = engine.execute(sql, stop_on_error=True)       # 첫 오류에서 멈춤
+        if results and results[-1]["type"] == "error":
+            done = results[:-1]                                   # 실패 전까지 실행된(이미 저장된) 문장
+            message = f"{len(done) + 1}번째 문장: {results[-1]['message']}"
+            self._send(400, {"error": {"code": "bad_sql", "message": message}, "results": done})
+            return
+        self._send(200, {"results": results})
 
     def _send(self, status, obj):
         out = json.dumps(obj, ensure_ascii=False).encode("utf-8")
