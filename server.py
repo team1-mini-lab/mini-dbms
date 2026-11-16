@@ -11,10 +11,20 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/query":
             self.send_error(404)
             return
-        length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length))
-        out = json.dumps({"results": engine.execute(body["sql"])}, ensure_ascii=False).encode("utf-8")
-        self.send_response(200)
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            sql = body["sql"]
+            if not isinstance(sql, str):
+                raise ValueError("sql은 문자열이어야 합니다")
+        except (ValueError, KeyError, TypeError) as e:   # JSON 오류·UnicodeDecodeError는 ValueError의 하위
+            self._send(400, {"error": {"code": "bad_request", "message": str(e)}})   # 모양은 17단계에서 확정
+            return
+        self._send(200, {"results": engine.execute(sql)})
+
+    def _send(self, status, obj):
+        out = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(out)))
         self.end_headers()

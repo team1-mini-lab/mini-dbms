@@ -1,112 +1,140 @@
-# 1단계: CLI
+# 1단계: CLI (터미널에서 SQL 실행)
 
-## 목표
+## 이 단계에서 한 일
 
-터미널에서 SQL 파일을 넣으면 실행되게 합니다. `INSERT`는 ID를 붙여 파일에 한 줄 추가하고, `SELECT *`는 파일 전체를 보여 줍니다. `INSERT` 두 번 뒤 `SELECT * FROM users;`에 ID 1, 2가 붙은 줄이 나오고, CLI를 다시 실행해도 다음 ID가 이어지면 완료입니다.
+터미널에서 SQL 파일을 넣으면 실행되게 만들었습니다.
 
-## 핵심 문제: 엉성해도 경계는 진짜로
+```bash
+python3 cli.py examples/step1.sql
+```
+
+- `INSERT` → id를 자동으로 붙여 `data/users.tbl` 파일 끝에 한 줄 추가
+- `SELECT *` → 파일을 처음부터 끝까지 읽어 전부 보여 줌
+
+**"엉성해도 처음부터 끝까지 한 번 돈다"**가 목표입니다. SQL을 읽는 부분(파서)은 아직 진짜가 아니라, 예제 SQL만 처리하는 간단한 버전입니다. 4~5단계에서 진짜 파서로 바꿉니다.
+
+## 파일들이 서로 하는 일
 
 ```
-cli.py      SQL 파일을 읽어 engine.execute(sql)에 넘기고 결과를 출력
-   │  engine.execute(sql)                  ← 접점 1
+cli.py      SQL 파일을 읽어서 엔진에 넘기고, 결과를 화면에 출력
+   │  engine.execute(sql)                 ← 접점 1 (DESIGN 2절)
    ▼
-engine.py   문장을 나누고 → 파서에 넘기고 → 결과를 접점 1 모양으로 모음
-   │  parse(stmt) → Insert / Select        ← 접점 2
+engine.py   SQL을 문장(;)별로 나누고 → 파서에 넘기고 → 결과를 정해진 모양으로 모음
+   │  parse(문장) → Insert / Select       ← 접점 2
    ▼
 parser.py   (임시) 정규식으로 예제 SQL만 처리
-storage.py  파일 끝에 쓰기 · 위치로 한 줄 읽기 · 처음부터 읽기
+storage.py  파일 끝에 한 줄 쓰기 · 위치로 한 줄 읽기 · 처음부터 끝까지 읽기
 ```
 
-- 파서는 엉성해도 되지만, 돌려주는 모양은 접점 2의 `Insert`, `Select` 그대로입니다. 그래야 4\~5단계에서 파서만 바꿔 끼울 수 있습니다.
-- 엔진은 파일이 JSON인지 모릅니다. `storage.append`, `storage.scan`만 부릅니다.
+중요한 점 두 가지:
+- 파서는 엉성해도 되지만, **돌려주는 모양은 DESIGN 접점 2와 똑같이** `Insert(...)`, `Select(...)`입니다. 그래야 4~5단계에서 파서만 갈아 끼울 수 있습니다.
+- 엔진은 파일이 JSON으로 저장되는지 모릅니다. `storage.append`, `storage.scan`만 부릅니다. 저장 형식을 바꿔도 `storage.py`만 고치면 됩니다.
 
-## 질문과 정리
+## 헷갈리기 쉬운 것
 
-| 질문 | 정리 |
+**Q. CLI를 두 번 실행하면 id가 또 1부터 붙지 않나요?**
+안 붙습니다. CLI는 실행할 때마다 새로 켜지기 때문에, 엔진은 켜질 때 `users.tbl`을 한 번 읽어서 "지금 가장 큰 id + 1"을 다음 번호로 정합니다.
+```
+1번째 실행: id 1, 2
+2번째 실행: id 3, 4   ← 파일을 읽고 이어서 붙임
+```
+
+**Q. 열 순서를 바꿔 쓰면요?**
+엔진이 `schema.json` 순서에 맞춰 다시 배치합니다. 열 이름을 아예 빼면 schema 순서대로 넣습니다.
+```sql
+INSERT INTO users (age, name) VALUES (31, '민수');   -- 파일에는 [n, "민수", 31]
+INSERT INTO users VALUES ('지영', 28);               -- 파일에는 [n, "지영", 28]
+```
+
+**Q. 문장 하나가 틀리면 전체가 멈추나요?**
+아니요. 틀린 문장만 `{'type': 'error', 'message': ...}`로 결과에 담고, 다음 문장은 계속 실행합니다. 이때 틀린 `INSERT`는 **번호를 쓰지 않습니다**. 다음 정상 `INSERT`가 번호를 건너뛰지 않습니다.
+
+**Q. 어떤 INSERT가 오류가 되나요?**
+
+| SQL | 결과 |
 | --- | --- |
-| 다음 ID는 어디서 알아내나 | 엔진을 만들 때 테이블 파일을 한 번 읽어 가장 큰 ID + 1로 정함. CLI는 실행할 때마다 새로 켜지므로, 이걸 안 하면 두 번째 실행에서 또 1부터 붙음 |
-| 열 순서가 다르게 오면 | 실행기가 `schema.json`의 열 순서(id 제외)에 맞춰 값을 다시 배치함. 열 이름을 생략하면 그 순서 그대로 |
-| 한 문장이 틀리면 | 그 문장만 `{"type": "error", ...}` 결과로 담고, 다음 문장은 계속 실행 |
+| `INSERT INTO users (email) VALUES ('x');` | `users 테이블에 없는 열입니다: email` |
+| `INSERT INTO users (name) VALUES ('혼자');` | `빠진 열이 있습니다: age` (빈 값은 없음) |
+| `INSERT INTO users (name, name) VALUES ('a', 'b');` | `같은 열이 두 번 있습니다` |
+| `INSERT INTO users (id, name, age) VALUES (9, 'x', 1);` | `id는 자동으로 붙으므로 직접 넣을 수 없습니다` |
+| `INSERT INTO users (name, age) VALUES ('a');` | `열 수와 값 수가 다릅니다` |
+
+값의 타입(숫자 열에 글자를 넣는 것)은 아직 검사하지 않습니다. 6단계에서 합니다.
 
 ## 이 단계에서 정한 것
 
-| 관련 코드 | 정한 것 | 이유 |
-| --- | --- | --- |
-| `parser.py` `parse` | 임시 파서는 정규식으로 `INSERT INTO t [(열들)] VALUES (값들)`, `SELECT * FROM t [WHERE 열 = 값]`만 처리 | 지도 단계는 끝까지 도는 것이 우선 (DESIGN.md 제안과 같음) |
-| `parser.py` `Where`, `Insert`, `Select` | 명령 구조는 `dataclass` | 접점 2 모양을 그대로 코드로 옮김. `stmt.table`처럼 이름으로 꺼냄 |
-| `parser.py` `parse` | 열 이름을 생략하면 `columns=None` | DESIGN.md 접점 2에 맞춤 |
-| `engine.py` `execute` | 문장 구분은 임시로 `sql.split(";")` | 4단계에서 토큰으로 자른 뒤 나누도록 바꿈 |
-| `engine.py` `execute` | 실패한 문장은 결과에 `{"type": "error", "message": ...}`로 담고 계속 실행 | 접점 1 모양. 9단계 오류 처리의 최소한 |
-| `engine.py` `__init__` | 엔진을 만들 때 테이블 파일을 읽어 다음 ID를 다시 정함 | CLI는 매번 새로 켜짐. 다음 ID = 가장 큰 ID + 1 (DESIGN.md 제안과 같음) |
-| `engine.py` `next_id` | 다음 ID는 테이블마다 따로 셈 | 테이블이 둘 이상이면 번호가 섞이지 않게 |
-| `engine.py` `_arrange` | 값을 `schema.json` 열 순서에 맞춰 배치. 없는 열이면 오류 | 열 순서를 바꿔 적어도 똑같이 저장됨 |
-| `storage.py` `append` | 파일은 바이너리 추가 모드(`"ab"`)로 열고, 쓰기 전 `tell()`로 위치를 돌려줌 | 한글은 한 글자가 3바이트라 글자 수와 바이트 수가 다름. 2단계 인덱스가 이 위치를 씀 |
-| `storage.py` `append` | 한 줄에 JSON 배열 하나 (`ensure_ascii=False`) | 쉼표·한글이 든 값도 안전하고 파일을 열어 읽을 수 있음 (DESIGN.md 제안과 같음) |
+| 어디서 | 정한 것 | 왜 (안 하면 생기는 일) | 출처 |
+| --- | --- | --- | --- |
+| 파서 (`parser.py`) | 임시 파서는 정규식으로 `INSERT INTO t [(열들)] VALUES (값들)`, `SELECT * FROM t [WHERE 열 = 값]`만 처리 | 지도 단계는 끝까지 도는 게 먼저. 진짜 파서는 4~5단계 | DESIGN.md 제안과 같음 |
+| 파서 (`Insert`, `Select`, `Where`) | 명령 모양은 `dataclass`(이름 붙은 칸을 가진 작은 클래스) | 접점 2를 그대로 코드로 옮김. `cmd.table`처럼 이름으로 꺼낼 수 있음 | 새로 정함 |
+| 파서 | 열 이름을 빼면 `columns=None` | DESIGN 접점 2와 같게 | DESIGN.md 제안과 같음 |
+| 엔진 (`execute`) | 문장은 임시로 `;`에서 자름 | 4단계에서 "단어로 자른 뒤 `;`로 나누기"로 바꿈. 지금은 글자 값 안의 `;`도 잘라 버림 | 새로 정함 (임시) |
+| 엔진 (`execute`) | 틀린 문장은 오류 결과로 담고 다음 문장 계속 | 100줄 중 한 줄 때문에 전부 멈추지 않게 | DESIGN.md 제안과 같음 |
+| 엔진을 켤 때 | 파일을 읽어 다음 번호를 다시 정함 (가장 큰 id + 1) | 안 하면 CLI를 두 번 실행할 때 id가 또 1부터 붙음 | DESIGN.md 제안과 같음 |
+| 엔진 (`next_id`) | 다음 번호는 테이블마다 따로 셈 | 안 하면 테이블이 둘일 때 번호가 섞임 | 새로 정함 |
+| 엔진 (`INSERT`) | **검사 → 파일에 쓰기 → 번호 올리기** 순서 | 번호를 먼저 올리면, 틀린 INSERT가 번호를 써 버려서 1, 3처럼 건너뜀 | 교차 검토로 정함 |
+| 엔진 (`_arrange`) | 값을 `schema.json` 열 순서대로 배치. 없는 열·빠진 열·같은 열 두 번·id 직접 넣기는 오류 | 안 하면 순서를 바꿔 쓸 때 이름과 나이가 뒤바뀌어 저장되거나, 빈 값(`null`)이 파일에 남음 | 교차 검토로 정함 |
+| 저장 (`storage.append`) | 파일을 바이너리 추가 모드(`"ab"`)로 열고, 쓰기 직전 위치(`tell()` = 지금 몇 바이트째)를 돌려줌 | 한글은 한 글자가 3바이트라 글자 수와 바이트 수가 다름. 2단계 인덱스가 이 위치를 씀 | 새로 정함 |
+| 저장 | 한 줄에 JSON 배열 하나 (`[1, "현지", 25]`), 한글은 그대로 | 쉼표나 한글이 든 값도 안전하고, 파일을 열어 눈으로 읽을 수 있음 | DESIGN.md 제안과 같음 |
 
-[DECISIONS.md](./DECISIONS.md)에도 같은 내용이 모여 있습니다.
-
-## 만드는 파일
+## 만든 파일
 
 | 파일 | 내용 |
 | --- | --- |
-| `storage.py` | `Storage` 클래스. `append(table, row) -> offset`, `read_at(table, offset)`, `scan(table)` |
-| `parser.py` | `Where`, `Insert`, `Select`와 임시 `parse(stmt)` |
-| `engine.py` | `Engine(data_dir)`, `execute(sql)`, `close()` (접점 1) |
-| `cli.py` | 파일 이름을 받아 `engine.execute`의 결과를 한 줄씩 출력 |
+| `storage.py` | `append(테이블, 행) → 위치`, `read_at(테이블, 위치)`, `scan(테이블)` |
+| `parser.py` | `Where`, `Insert`, `Select`와 임시 `parse(문장)` |
+| `engine.py` | `Engine(폴더)`, `execute(sql)`, `close()` (접점 1) |
+| `cli.py` | 파일 이름을 받아 결과를 한 줄씩 출력 |
 
-만드는 순서는 아래쪽부터입니다: `storage.py` → `parser.py` → `engine.py` → `cli.py`.
+만드는 순서는 아래쪽부터: `storage.py` → `parser.py` → `engine.py` → `cli.py`
 
-## 완료 테스트
+## 완료 확인
 
 ```bash
 rm -f data/users.tbl
 python3 cli.py examples/step1.sql
 ```
-
 ```
 {'type': 'insert', 'id': 1}
 {'type': 'insert', 'id': 2}
 {'type': 'select', 'columns': ['id', 'name', 'age'], 'rows': [[1, '현지', 25], [2, '민수', 31]], 'used_index': False}
 ```
 
-| 확인 방법 | 기대 결과 |
-| --- | --- |
-| 위 명령 | ID 1, 2가 붙은 두 줄 |
-| `cat data/users.tbl` | `[1, "현지", 25]`와 `[2, "민수", 31]` 두 줄 |
-| `python3 cli.py examples/step1.sql`을 한 번 더 | `id`가 3, 4로 이어지고 `rows`가 네 줄 (아래 실제 결과) |
-| `INSERT INTO users (age, name) VALUES (31, '민수');` | 파일에 `[n, "민수", 31]`로 저장됨 (순서가 바뀌어도 맞게) |
-| `INSERT INTO users (email) VALUES ('x');` | `{'type': 'error', 'message': 'users 테이블에 없는 열입니다: email'}` |
-
-실제로 두 번째 실행한 결과입니다.
-
+한 번 더 실행하면 id가 이어집니다.
 ```
 {'type': 'insert', 'id': 3}
 {'type': 'insert', 'id': 4}
 {'type': 'select', 'columns': ['id', 'name', 'age'], 'rows': [[1, '현지', 25], [2, '민수', 31], [3, '현지', 25], [4, '민수', 31]], 'used_index': False}
 ```
 
-처음부터 다시 확인하려면 `rm data/users.tbl`로 데이터 파일을 지웁니다. ID가 다시 1부터 시작합니다.
-
-## 나중에 바꿔 끼울 곳
-
-| 지금 (임시) | 바뀌는 단계 | 바뀌는 모습 | 안 고쳐도 되는 곳 |
-| --- | --- | --- | --- |
-| 정규식 임시 파서 | 4\~5단계 | 토크나이저 + 재귀 하강 파서 | 엔진. 접점 2 모양이 같음 |
-| `sql.split(";")` | 4단계 | 토큰으로 자른 뒤 `;`로 나눔 (`'a;b'` 안의 `;`를 안 자름) | `execute`의 결과 모양 |
-| 열 검사는 "없는 열"만 | 6단계 | 타입(INT/TEXT), 열 수까지 검사 | 파서 |
-| 오류는 예외 메시지 그대로 | 9단계 | 무엇이 틀렸는지 알아보기 쉬운 메시지 | 접점 1 모양 |
-| 켤 때 파일을 다시 읽기 (간단히) | 8단계 | 깨진 마지막 줄 처리 등 재시작 상황 전체 | 엔진 바깥 |
-
-## 문제가 생기면
-
-| 증상 | 해결 |
+| 확인 | 이렇게 나오면 완료 |
 | --- | --- |
-| 두 번째 실행에서 ID가 다시 1부터 | `Engine.__init__`에서 `storage.scan`으로 다음 ID를 다시 정하는지 확인 |
-| 한글이 `현`처럼 보임 | `json.dumps(..., ensure_ascii=False)`인지 확인 |
-| `KeyError: 'users'` | `data/schema.json`이 있는지, 실행 위치가 `mini-dbms` 폴더인지 확인 |
+| 위 첫 명령 | id 1, 2가 붙은 두 줄 |
+| `cat data/users.tbl` | `[1, "현지", 25]`, `[2, "민수", 31]` |
+| 한 번 더 실행 | id 3, 4로 이어지고 전체 네 줄 |
+| 틀린 INSERT를 사이에 둔 세 문장 (`('a',1)` / `(email)` / `('b',2)`) | id가 건너뛰지 않음 (예: 1, 오류, 2) |
 
-## 코드에서 알아 둘 것
+처음부터 다시 확인하려면 `rm data/users.tbl`. id가 1부터 다시 시작합니다.
 
-- `@dataclass`: `Insert(table="users", columns=[...], values=[...])`처럼 이름 붙은 칸을 가진 클래스를 짧게 만듭니다.
-- `f.tell()`: 지금 파일의 몇 바이트째인지 알려 줍니다. 추가 모드에서는 파일 끝 위치예요.
-- `scan`은 `yield`로 한 줄씩 돌려줍니다. 100만 줄이어도 한꺼번에 메모리에 올리지 않습니다.
+## 나중에 바꿀 곳
+
+| 지금 (임시) | 언제 | 어떻게 바뀌나 | 안 고쳐도 되는 곳 |
+| --- | --- | --- | --- |
+| 정규식 임시 파서 | 4~5단계 | 토크나이저(글자 → 단어) + 재귀 하강 파서(단어 → 명령) | 엔진의 실행 부분. 단, `execute` 안의 "문장 나누기"와 `parse` 부르는 곳은 4단계에서 바뀜 |
+| `;`에서 그냥 자르기 | 4단계 | 단어로 자른 뒤 `;`로 나눔 | 결과 모양 |
+| 값 검사는 "열 이름"까지만 | 6단계 | 숫자 열에 숫자가 왔는지(타입)까지 | 파서 |
+| 켤 때 파일을 다시 읽기 (간단히) | 8단계 | 빈 줄, 쓰다 만 마지막 줄 같은 경우까지 처리 | 엔진을 켜는 코드 |
+| 오류 메시지가 간단함 | 9단계 | 무엇이 틀렸는지 더 알아보기 쉽게 | 결과 모양 |
+
+**지금 알고 있는 한계** (4단계에서 해결):
+- 글자 값 안에 `;`가 있으면 거기서 문장이 잘려서, **값 안에 적힌 SQL이 따로 실행될 수 있습니다.** 예: `VALUES ('메모;INSERT ...', 7)`
+- 닫히지 않은 따옴표(`'abc`)도 받아들입니다.
+- 값 안의 쉼표(`'김,철수'`)는 처리하지 못하고 오류가 납니다.
+
+## 막히면
+
+| 이런 일이 생기면 | 이렇게 |
+| --- | --- |
+| 두 번째 실행에서 id가 다시 1부터 | 엔진을 켤 때 `storage.scan`으로 다음 번호를 다시 정하는지 확인 |
+| `cat data/users.tbl`에서 한글이 `현`처럼 보임 | `json.dumps(..., ensure_ascii=False)`인지 확인 |
+| `KeyError: 'users'` 또는 `schema.json`을 못 찾음 | 실행 위치가 저장소 맨 위 폴더(`mini-dbms`)인지 확인 |
