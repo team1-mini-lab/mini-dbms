@@ -48,6 +48,8 @@ SELECT * FROM users WHERE id = 2;
 | `schema.json`과 데이터 파일(`users.tbl`)은 `data/` 폴더 하나에 | 엔진은 폴더 이름 하나만 받으면 됨: `Engine("data")` | 새로 정함 |
 | 단계마다 확인용 SQL을 `examples/`에 | 완료 확인을 매번 같은 명령으로 반복할 수 있음 | 새로 정함 |
 
+**출처** 칸: "DESIGN.md 제안과 같음" = 팀 설계 문서 [DESIGN.md](../DESIGN.md) 4절에 제안으로 적힌 것을 그대로 따름. "새로 정함" = DESIGN에 없어서 만들면서 정함. "교차 검토로 정함" = 두 검토자가 코드를 돌려 보고 문제를 찾아 고치면서 정함.
+
 ## 완료 확인
 
 저장소 맨 위 폴더(`mini-dbms`)에서 실행합니다.
@@ -68,5 +70,5 @@ SELECT * FROM users WHERE id = 2;
 
 | 이런 일이 생기면 | 이렇게 |
 | --- | --- |
-| `can't open file '/Users/.../Desktop/...'` | 다른 폴더에서 실행한 것. 저장소는 `~/dev/mini-dbms` 같은 곳에 두기. Desktop 폴더는 iCloud 동기화 때문에 git이 `unable to map index file` 오류를 낼 수 있음 |
+| `can't open file '/Users/.../Desktop/...'` | 다른 폴더에서 실행한 것. 저장소는 `~/dev/mini-dbms` 같은 곳에 두기. Desktop 폴더는 iCloud 동기화 때문에 git이 `unable to map index file` 오류를 낼 수 있음 (여기서 index는 git 내부 파일 이야기로, 우리 프로젝트의 인덱스와는 상관없음) |
 | `JSONDecodeError` | `schema.json`의 따옴표가 큰따옴표(`"`)인지, 마지막에 쉼표가 남지 않았는지 확인 |
