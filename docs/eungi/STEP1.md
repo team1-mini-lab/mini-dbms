@@ -1,122 +1,112 @@
-# 1단계: 뼈대
+# 1단계: CLI
 
 ## 목표
 
-API 3개와 임시 저장소를 만듭니다. API로 저장한 값이 조회되고, 삭제한 뒤에는 404가 나오면 완료입니다.
+터미널에서 SQL 파일을 넣으면 실행되게 합니다. `INSERT`는 ID를 붙여 파일에 한 줄 추가하고, `SELECT *`는 파일 전체를 보여 줍니다. `INSERT` 두 번 뒤 `SELECT * FROM users;`에 ID 1, 2가 붙은 줄이 나오고, CLI를 다시 실행해도 다음 ID가 이어지면 완료입니다.
 
-## 핵심 문제: 서버와 저장소의 경계
+## 핵심 문제: 엉성해도 경계는 진짜로
 
 ```
-server.py  (HTTP를 아는 쪽)      요청 해석 → 저장소 함수 호출 → 응답 코드 결정
-    │  store.set / store.get / store.delete
-    ▼
-store.py   (HTTP를 모르는 쪽)    값을 넣고, 꺼내고, 지움
+cli.py      SQL 파일을 읽어 engine.execute(sql)에 넘기고 결과를 출력
+   │  engine.execute(sql)                  ← 접점 1
+   ▼
+engine.py   문장을 나누고 → 파서에 넘기고 → 결과를 접점 1 모양으로 모음
+   │  parse(stmt) → Insert / Select        ← 접점 2
+   ▼
+parser.py   (임시) 정규식으로 예제 SQL만 처리
+storage.py  파일 끝에 쓰기 · 위치로 한 줄 읽기 · 처음부터 읽기
 ```
 
-- 서버는 저장소 안에 `dict`가 있다는 사실을 모릅니다. 함수 3개만 압니다.
-- 저장소는 HTTP를 모릅니다. 404 같은 응답 코드를 만들지 않고 `None`, `True`, `False`만 돌려줍니다.
-- 그래서 2단계에서 `dict`를 해시 테이블로 바꿀 때 `store.py`만 고치면 됩니다.
+- 파서는 엉성해도 되지만, 돌려주는 모양은 접점 2의 `Insert`, `Select` 그대로입니다. 그래야 4\~5단계에서 파서만 바꿔 끼울 수 있습니다.
+- 엔진은 파일이 JSON인지 모릅니다. `storage.append`, `storage.scan`만 부릅니다.
 
 ## 질문과 정리
 
 | 질문 | 정리 |
 | --- | --- |
-| 왜 `dict`를 감싸서 쓰는가 | 바깥에서 `dict`를 직접 만지지 못하고 `set`, `get`, `delete`로만 접근하게 함. 그 결과 안쪽 구현을 바꿔도 바깥 코드가 그대로임 |
-| 클래스인가, 모듈 함수인가 | 클래스. 서버가 쓰는 저장소는 하나뿐이지만, 테스트에서는 테스트마다 빈 저장소를 새로 만들어야 서로 영향을 주지 않음 |
-| "없음"을 누가 어떻게 알리는가 | 저장소는 `None`을 돌려주고, 서버가 그것을 404로 바꿈. `None`이 항상 "없음"을 뜻해야 하므로 값으로 `None`은 저장할 수 없음 |
-| 1단계의 입력 검증 범위 | 필수 항목이 빠진 요청만 400으로 처리. 나머지는 6단계 |
+| 다음 ID는 어디서 알아내나 | 엔진을 만들 때 테이블 파일을 한 번 읽어 가장 큰 ID + 1로 정함. CLI는 실행할 때마다 새로 켜지므로, 이걸 안 하면 두 번째 실행에서 또 1부터 붙음 |
+| 열 순서가 다르게 오면 | 실행기가 `schema.json`의 열 순서(id 제외)에 맞춰 값을 다시 배치함. 열 이름을 생략하면 그 순서 그대로 |
+| 한 문장이 틀리면 | 그 문장만 `{"type": "error", ...}` 결과로 담고, 다음 문장은 계속 실행 |
 
-## 지키는 결정 (DESIGN.md 4번, 1단계)
+## 이 단계에서 정한 것
 
-| 결정 | 코드에서 지키는 곳 |
-| --- | --- |
-| API 형식은 HTTP | `server.py`의 경로 3개 |
-| 없는 키를 조회하면 `get`은 `None`, API는 404 | `Store.get`, `get_value`의 `if value is None` |
-| 없는 키를 삭제하면 `delete`는 `False`, API는 200 `{"deleted": false}` | `Store.delete`, `delete_value` |
-| 이미 있는 키에 `set`을 하면 값을 덮어씀 | `Store.set` |
-| 키는 비어 있지 않은 문자열, 값은 JSON으로 표현할 수 있는 값 | 6단계에서 검증 |
-| 값으로 `None`은 저장할 수 없음 | 6단계에서 검증 (지금은 `null`을 저장하면 조회할 때 404가 나옴) |
+| 관련 코드 | 정한 것 | 이유 |
+| --- | --- | --- |
+| `parser.py` `parse` | 임시 파서는 정규식으로 `INSERT INTO t [(열들)] VALUES (값들)`, `SELECT * FROM t [WHERE 열 = 값]`만 처리 | 지도 단계는 끝까지 도는 것이 우선 (DESIGN.md 제안과 같음) |
+| `parser.py` `Where`, `Insert`, `Select` | 명령 구조는 `dataclass` | 접점 2 모양을 그대로 코드로 옮김. `stmt.table`처럼 이름으로 꺼냄 |
+| `parser.py` `parse` | 열 이름을 생략하면 `columns=None` | DESIGN.md 접점 2에 맞춤 |
+| `engine.py` `execute` | 문장 구분은 임시로 `sql.split(";")` | 4단계에서 토큰으로 자른 뒤 나누도록 바꿈 |
+| `engine.py` `execute` | 실패한 문장은 결과에 `{"type": "error", "message": ...}`로 담고 계속 실행 | 접점 1 모양. 9단계 오류 처리의 최소한 |
+| `engine.py` `__init__` | 엔진을 만들 때 테이블 파일을 읽어 다음 ID를 다시 정함 | CLI는 매번 새로 켜짐. 다음 ID = 가장 큰 ID + 1 (DESIGN.md 제안과 같음) |
+| `engine.py` `next_id` | 다음 ID는 테이블마다 따로 셈 | 테이블이 둘 이상이면 번호가 섞이지 않게 |
+| `engine.py` `_arrange` | 값을 `schema.json` 열 순서에 맞춰 배치. 없는 열이면 오류 | 열 순서를 바꿔 적어도 똑같이 저장됨 |
+| `storage.py` `append` | 파일은 바이너리 추가 모드(`"ab"`)로 열고, 쓰기 전 `tell()`로 위치를 돌려줌 | 한글은 한 글자가 3바이트라 글자 수와 바이트 수가 다름. 2단계 인덱스가 이 위치를 씀 |
+| `storage.py` `append` | 한 줄에 JSON 배열 하나 (`ensure_ascii=False`) | 쉼표·한글이 든 값도 안전하고 파일을 열어 읽을 수 있음 (DESIGN.md 제안과 같음) |
 
-새로 정한 것은 [DECISIONS.md](./DECISIONS.md)의 1단계 줄에 있습니다.
+[DECISIONS.md](./DECISIONS.md)에도 같은 내용이 모여 있습니다.
 
 ## 만드는 파일
 
 | 파일 | 내용 |
 | --- | --- |
-| `store.py` (새로 만듦) | `Store` 클래스. `set`, `get`, `delete` |
-| `server.py` (고침) | `Store()`를 하나 만들고, `/set`, `/get`, `/delete` 경로를 추가 |
+| `storage.py` | `Storage` 클래스. `append(table, row) -> offset`, `read_at(table, offset)`, `scan(table)` |
+| `parser.py` | `Where`, `Insert`, `Select`와 임시 `parse(stmt)` |
+| `engine.py` | `Engine(data_dir)`, `execute(sql)`, `close()` (접점 1) |
+| `cli.py` | 파일 이름을 받아 `engine.execute`의 결과를 한 줄씩 출력 |
+
+만드는 순서는 아래쪽부터입니다: `storage.py` → `parser.py` → `engine.py` → `cli.py`.
 
 ## 완료 테스트
 
-터미널 하나에서 서버를 켭니다.
-
 ```bash
-source .venv/bin/activate
-python server.py
+rm -f data/users.tbl
+python3 cli.py examples/step1.sql
 ```
 
-다른 터미널에서 아래 명령을 순서대로 실행합니다.
-
-### 1. 저장하고 조회하기
-
-```bash
-curl -i -X POST http://127.0.0.1:8000/set -H "Content-Type: application/json" -d '{"key": "name", "value": "현지"}'
-curl -i "http://127.0.0.1:8000/get?key=name"
+```
+{'type': 'insert', 'id': 1}
+{'type': 'insert', 'id': 2}
+{'type': 'select', 'columns': ['id', 'name', 'age'], 'rows': [[1, '현지', 25], [2, '민수', 31]], 'used_index': False}
 ```
 
-| 명령 | 기대 결과 |
+| 확인 방법 | 기대 결과 |
 | --- | --- |
-| `POST /set` | 200 `{"ok": true}` |
-| `GET /get?key=name` | 200 `{"key": "name", "value": "현지"}` |
+| 위 명령 | ID 1, 2가 붙은 두 줄 |
+| `cat data/users.tbl` | `[1, "현지", 25]`와 `[2, "민수", 31]` 두 줄 |
+| `python3 cli.py examples/step1.sql`을 한 번 더 | `id`가 3, 4로 이어지고 `rows`가 네 줄 (아래 실제 결과) |
+| `INSERT INTO users (age, name) VALUES (31, '민수');` | 파일에 `[n, "민수", 31]`로 저장됨 (순서가 바뀌어도 맞게) |
+| `INSERT INTO users (email) VALUES ('x');` | `{'type': 'error', 'message': 'users 테이블에 없는 열입니다: email'}` |
 
-### 2. 덮어쓰기
+실제로 두 번째 실행한 결과입니다.
 
-```bash
-curl -i -X POST http://127.0.0.1:8000/set -H "Content-Type: application/json" -d '{"key": "name", "value": [1, 2, 3]}'
-curl -i "http://127.0.0.1:8000/get?key=name"
+```
+{'type': 'insert', 'id': 3}
+{'type': 'insert', 'id': 4}
+{'type': 'select', 'columns': ['id', 'name', 'age'], 'rows': [[1, '현지', 25], [2, '민수', 31], [3, '현지', 25], [4, '민수', 31]], 'used_index': False}
 ```
 
-| 명령 | 기대 결과 |
+처음부터 다시 확인하려면 `rm data/users.tbl`로 데이터 파일을 지웁니다. ID가 다시 1부터 시작합니다.
+
+## 나중에 바꿔 끼울 곳
+
+| 지금 (임시) | 바뀌는 단계 | 바뀌는 모습 | 안 고쳐도 되는 곳 |
+| --- | --- | --- | --- |
+| 정규식 임시 파서 | 4\~5단계 | 토크나이저 + 재귀 하강 파서 | 엔진. 접점 2 모양이 같음 |
+| `sql.split(";")` | 4단계 | 토큰으로 자른 뒤 `;`로 나눔 (`'a;b'` 안의 `;`를 안 자름) | `execute`의 결과 모양 |
+| 열 검사는 "없는 열"만 | 6단계 | 타입(INT/TEXT), 열 수까지 검사 | 파서 |
+| 오류는 예외 메시지 그대로 | 9단계 | 무엇이 틀렸는지 알아보기 쉬운 메시지 | 접점 1 모양 |
+| 켤 때 파일을 다시 읽기 (간단히) | 8단계 | 깨진 마지막 줄 처리 등 재시작 상황 전체 | 엔진 바깥 |
+
+## 문제가 생기면
+
+| 증상 | 해결 |
 | --- | --- |
-| `GET /get?key=name` | 200 `{"key": "name", "value": [1, 2, 3]}` (이전 값 "현지"가 사라짐) |
+| 두 번째 실행에서 ID가 다시 1부터 | `Engine.__init__`에서 `storage.scan`으로 다음 ID를 다시 정하는지 확인 |
+| 한글이 `현`처럼 보임 | `json.dumps(..., ensure_ascii=False)`인지 확인 |
+| `KeyError: 'users'` | `data/schema.json`이 있는지, 실행 위치가 `mini-dbms` 폴더인지 확인 |
 
-### 3. 삭제하고 다시 조회하기 (완료 기준)
+## 코드에서 알아 둘 것
 
-```bash
-curl -i -X DELETE "http://127.0.0.1:8000/delete?key=name"
-curl -i "http://127.0.0.1:8000/get?key=name"
-curl -i -X DELETE "http://127.0.0.1:8000/delete?key=name"
-```
-
-| 명령 | 기대 결과 |
-| --- | --- |
-| 첫 번째 `DELETE` | 200 `{"deleted": true}` |
-| `GET /get?key=name` | **404** `{"error": "키가 없습니다"}` |
-| 두 번째 `DELETE` | 200 `{"deleted": false}` (오류가 아님) |
-
-### 4. 필수 항목이 빠진 요청
-
-```bash
-curl -i "http://127.0.0.1:8000/get"
-curl -i -X POST http://127.0.0.1:8000/set -H "Content-Type: application/json" -d '{"value": 1}'
-```
-
-| 명령 | 기대 결과 |
-| --- | --- |
-| `GET /get` (key 없음) | 400 `{"error": "key가 필요합니다"}` |
-| `POST /set` (key 없음) | 400 `{"error": "key와 value가 필요합니다"}` |
-
-1~4가 모두 맞으면 1단계 완료입니다.
-
-## 실습할 때 알아 둘 것
-
-- 값은 RAM에 있으므로 서버를 끄면 사라집니다. `debug=True`라서 코드를 저장할 때도 서버가 다시 시작되며 값이 사라집니다.
-- 브라우저 주소창으로는 GET 요청만 보낼 수 있습니다. `/get`은 브라우저로 확인할 수 있지만, `/set`과 `/delete`는 `curl`로 보내야 합니다.
-- `curl`의 `-i`는 응답 코드(200, 404 등)를 함께 보여 주는 옵션입니다.
-
-## 6단계로 미룬 것
-
-지금은 아래 요청이 걸러지지 않습니다. 6단계에서 400으로 처리합니다.
-
-- 빈 문자열 키 (`"key": ""`), 문자열이 아닌 키 (`"key": 123`)
-- 값이 `null`인 요청
+- `@dataclass`: `Insert(table="users", columns=[...], values=[...])`처럼 이름 붙은 칸을 가진 클래스를 짧게 만듭니다.
+- `f.tell()`: 지금 파일의 몇 바이트째인지 알려 줍니다. 추가 모드에서는 파일 끝 위치예요.
+- `scan`은 `yield`로 한 줄씩 돌려줍니다. 100만 줄이어도 한꺼번에 메모리에 올리지 않습니다.
