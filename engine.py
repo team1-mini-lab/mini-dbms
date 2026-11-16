@@ -37,10 +37,10 @@ class Engine:
         columns = [name for name, _ in self.schema[cmd.table]]
 
         if isinstance(cmd, Insert):
+            values = self._arrange(columns, cmd)          # 검사 먼저. 실패하면 번호를 쓰지 않음
             new_id = self.next_id[cmd.table]
-            self.next_id[cmd.table] += 1
-            row = [new_id] + self._arrange(columns, cmd)
-            offset = self.storage.append(cmd.table, row)
+            offset = self.storage.append(cmd.table, [new_id] + values)
+            self.next_id[cmd.table] += 1                  # 파일에 쓴 뒤에 번호를 올림
             self.index[cmd.table].insert(new_id, offset)
             return {"type": "insert", "id": new_id}
 
@@ -49,7 +49,13 @@ class Engine:
             rows = [] if offset is None else [self.storage.read_at(cmd.table, offset)]
             return {"type": "select", "columns": columns, "rows": rows, "used_index": True}
 
-        rows = [row for _, row in self.storage.scan(cmd.table)]
+        if cmd.where:                                     # id가 아닌 열: 처음부터 읽으며 조건에 맞는 줄만
+            if cmd.where.column not in columns:
+                raise ValueError(f"{cmd.table} 테이블에 없는 열입니다: {cmd.where.column}")
+            i = columns.index(cmd.where.column)
+            rows = [row for _, row in self.storage.scan(cmd.table) if row[i] == cmd.where.value]
+        else:
+            rows = [row for _, row in self.storage.scan(cmd.table)]
         return {"type": "select", "columns": columns, "rows": rows, "used_index": False}
 
     def _arrange(self, columns, cmd):
