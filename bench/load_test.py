@@ -10,7 +10,9 @@
   B. 느린 손님 K명 + 빠른 손님 60명: 스레드가 느린 손님에게 붙잡혀 있을 때 빠른 손님이 얼마나 기다리나
      - 느린 손님: 요청 머리만 보내고 1초 뒤에 본문을 보냄 (네트워크가 느린 손님을 흉내 냄)
      - 빠른 손님: 0.01초 간격으로 와서 요청을 한 번에 보냄. 이 손님들의 응답 시간을 봄
-  C. 큐 칸 수에 따라 가장 오래 기다린 손님
+  C. 큐 칸 수에 따라 200을 받은 손님이 평균·최대 얼마나 기다렸나, 503은 몇 명인가
+
+C만 돌리기: python3 bench/load_test.py C
 """
 import json
 import os
@@ -86,7 +88,7 @@ def slow_client(port, wait=1.0):
 
 
 def all_at_once(data, workers, n=100, queue_size=256):
-    """빠른 손님 n명이 같은 순간에. (전체 ms, 응답 번호 Counter, 200 받은 손님 중 가장 오래 걸린 ms)"""
+    """빠른 손님 n명이 같은 순간에. (전체 ms, 응답 번호 Counter, 200 받은 손님 중 가장 오래 걸린 ms, 200 받은 손님 평균 ms)"""
     server = start(data, workers, queue_size)
     port = server.server_address[1]
     together = threading.Barrier(n)
@@ -108,7 +110,7 @@ def all_at_once(data, workers, n=100, queue_size=256):
     total = (time.perf_counter() - start_time) * 1000
     stop(server)
     ok = [ms for status, ms in out if status == 200]
-    return total, Counter(status for status, _ in out), max(ok) if ok else 0
+    return total, Counter(status for status, _ in out), max(ok) if ok else 0, statistics.mean(ok) if ok else 0
 
 
 def mixed(data, workers, slow, fast=60, gap=0.01):
@@ -148,30 +150,35 @@ def median_of(fn, *args):
 def main():
     print(f"데이터 {ROWS:,}줄 준비 (id로 찾기만 보냄, {REPEAT}번 중앙값)", flush=True)
     data = prepare_data()
+    only = sys.argv[1:] or ["A", "B", "C"]
     try:
-        print("\nA. 빠른 손님만 100명이 동시에 (큐 256칸)\n")
-        print("| 스레드 | 전체 시간 |")
-        print("|---:|---:|")
-        for workers in [1, 4, 16]:
-            total, _ = median_of(lambda w: all_at_once(data, w)[:1] + (0,), workers)
-            print(f"| {workers} | {total:.0f}ms |", flush=True)
+        if "A" in only:
+            print("\nA. 빠른 손님만 100명이 동시에 (큐 256칸)\n")
+            print("| 스레드 | 전체 시간 |")
+            print("|---:|---:|")
+            for workers in [1, 4, 16]:
+                total, _ = median_of(lambda w: all_at_once(data, w)[:1] + (0,), workers)
+                print(f"| {workers} | {total:.0f}ms |", flush=True)
 
-        print("\nB. 느린 손님 K명(1초 동안 본문을 안 보냄) + 빠른 손님 60명 → 빠른 손님 응답 시간\n")
-        print("| 느린 손님 | 스레드 | 빠른 손님 중앙값 | 빠른 손님 최대 |")
-        print("|---:|---:|---:|---:|")
-        for slow, workers in [(0, 4), (3, 4), (4, 4), (4, 8), (8, 8), (8, 9)]:
-            med, worst = median_of(mixed, data, workers, slow)
-            print(f"| {slow} | {workers} | {med:.1f}ms | {worst:.1f}ms |", flush=True)
+        if "B" in only:
+            print("\nB. 느린 손님 K명(1초 동안 본문을 안 보냄) + 빠른 손님 60명 → 빠른 손님 응답 시간\n")
+            print("| 느린 손님 | 스레드 | 빠른 손님 중앙값 | 빠른 손님 최대 |")
+            print("|---:|---:|---:|---:|")
+            for slow, workers in [(0, 4), (3, 4), (4, 4), (4, 8), (8, 8), (8, 9)]:
+                med, worst = median_of(mixed, data, workers, slow)
+                print(f"| {slow} | {workers} | {med:.1f}ms | {worst:.1f}ms |", flush=True)
 
-        print("\nC. 빠른 손님 100명이 동시에, 스레드 4개 → 큐 칸 수에 따라\n")
-        print("| 큐 칸 | 200 | 503 | 200 받은 손님 중 가장 오래 걸림 |")
-        print("|---:|---:|---:|---:|")
-        for queue_size in [1, 16, 64]:
-            runs = [all_at_once(data, 4, 100, queue_size) for _ in range(REPEAT)]
-            ok = statistics.median(r[1][200] for r in runs)
-            busy = statistics.median(r[1][503] for r in runs)
-            worst = statistics.median(r[2] for r in runs)
-            print(f"| {queue_size} | {ok:.0f} | {busy:.0f} | {worst:.0f}ms |", flush=True)
+        if "C" in only:
+            print("\nC. 빠른 손님 100명이 동시에, 스레드 4개 → 큐 칸 수에 따라\n")
+            print("| 큐 칸 | 200 | 503 | 200 받은 손님 평균 | 200 받은 손님 중 가장 오래 걸림 |")
+            print("|---:|---:|---:|---:|---:|")
+            for queue_size in [1, 4, 16, 64]:
+                runs = [all_at_once(data, 4, 100, queue_size) for _ in range(REPEAT)]
+                ok = statistics.median(r[1][200] for r in runs)
+                busy = statistics.median(r[1][503] for r in runs)
+                worst = statistics.median(r[2] for r in runs)
+                avg = statistics.median(r[3] for r in runs)
+                print(f"| {queue_size} | {ok:.0f} | {busy:.0f} | {avg:.1f}ms | {worst:.1f}ms |", flush=True)
     finally:
         shutil.rmtree(data, ignore_errors=True)
 
