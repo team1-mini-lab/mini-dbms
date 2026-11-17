@@ -54,23 +54,44 @@ python3 server.py
 ```
 서버를 켠 뒤 브라우저에서 **`http://localhost:8000`** 을 열면 `schema.json` 확인, `INSERT`·`SELECT`·오류 JSON(400/404/405/413) 테스트, 현재 저장된 `users.tbl` 데이터 표까지 바로 확인할 수 있습니다.
 
-### 3. 동시 요청(Thread Pool · `@locked`) & `503 busy` 확인 (터미널 2)
+## 실행 및 시연
 
+외부 패키지 설치 없이 **Python 3**만으로 바로 실행할 수 있습니다.
+
+### 1. CLI 실행 (SQL 파일 일괄 처리)
 ```bash
-# ① 동시에 6개 INSERT → 응답 id가 안 겹치고(@locked), 서버 로그에 worker-1~4가 섞여 찍힘(Thread Pool)
-BASE=http://localhost:8000
-for i in 1 2 3 4 5 6; do curl -s -X POST $BASE/query -d "{\"sql\": \"INSERT INTO users (name, age) VALUES ('u$i', $i);\"}" & done; wait
+python3 cli.py examples/step1.sql
 ```
+`data/schema.json` 기준으로 `INSERT`·`SELECT` 문장을 실행하고 결과를 출력합니다.
 
+### 2. API 서버 실행 · 웹 테스트 (`GET /`)
 ```bash
-# ② (필요 시) 큐 포화 503 재현: 터미널 1을 Ctrl+C로 끄고 일꾼 1·큐 1로 실행
+python3 server.py
+```
+실행 후 브라우저에서 [`http://localhost:8000`](http://localhost:8000) 에 접속하면 아래 기능을 바로 확인할 수 있습니다.
+- `schema.json` 구조 확인 및 `INSERT` · `SELECT` · 오류 JSON(`400` / `404` / `405` / `413`) 테스트
+- 현재 `data/users.tbl`에 저장된 데이터 표 실시간 조회  
+  *(서버를 `Ctrl + C`로 껐다 켠 뒤 **새로고침**을 눌러도 기존 데이터와 다음 `id`가 유지됩니다.)*
+
+### 3. 동시 접속 · 과부하 방어 확인 (터미널)
+
+**① 동시 6개 요청 — Thread Pool 분산 처리 & `@locked` 동시성 제어**
+```bash
+for i in 1 2 3 4 5 6; do curl -s -X POST http://localhost:8000/query -d "{\"sql\": \"INSERT INTO users (name, age) VALUES ('u$i', $i);\"}" & done; wait
+```
+- **응답:** 6건의 `"id"`가 중복 없이 순차적으로 발급됨 (`@locked`)
+- **서버 로그:** `[worker-1]` ~ `[worker-4]`가 섞여 출력됨 (`Thread Pool`)
+
+**② 큐 포화 방어(`503 busy`) 재현** *(필요 시)*
+```bash
+# 터미널 1: 일꾼 1개, 대기 큐 1칸으로 축소 실행
 python3 server.py --workers 1 --queue 1
 ```
 ```bash
-# 터미널 2에서 앞 2칸을 점유한 뒤 3번째 요청 → 즉시 {"error": {"code": "busy", ...}} (503)
-(sleep 3 | nc localhost 8000 &) && (sleep 3 | nc localhost 8000 &) && sleep 0.3 && curl -s -X POST localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'
+# 터미널 2: 앞 2칸을 점유한 상태에서 3번째 요청 → 즉시 503 busy 응답
+(sleep 3 | nc localhost 8000 &) && (sleep 3 | nc localhost 8000 &) && sleep 0.3 && curl -s -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'
 ```
 
-서버를 `Ctrl + C`로 끄고 다시 켠 뒤 `http://localhost:8000`에서 **쌓인 데이터 새로고침**을 누르면 `data/users.tbl` 데이터가 유지되고 다음 `id`가 이어지는 것을 확인할 수 있습니다.
+---
 
 더 많은 요청(503 바쁨, 408 시간 초과 등)과 서버 없이 도는 확인 스크립트는 [시연 순서](docs/eungi/DEMO.md)에 있습니다. "왜 DBMS인가"의 문제 1·2·3을 SQLite로 보여 주는 예전 시연은 [시연 설명](docs/study/WHY_DBMS/why_dbms_demo/README.md)에 그대로 있습니다.
