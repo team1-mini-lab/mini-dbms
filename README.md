@@ -7,7 +7,21 @@ INSERT INTO users (name, age) VALUES ('현지', 25);   -- 저장: users.tbl 파�
 SELECT * FROM users WHERE id = 1;                   -- 꺼내기: 파일에서 id가 1인 줄을 찾아 돌려줌 → 1, 현지, 25
 ```
 
-### 한눈에: 세 가지 문제, 세 가지 해결
+### 한눈에: 우리가 푼 문제
+
+```
+Thread Pool로 여러 요청을 동시에 처리                    (Phase 3, 15단계)
+  → 동시에 쓰니 id가 겹침
+    → lock으로 엔진 실행을 한 번에 하나씩                (Phase 3, 16단계)
+      → lock을 오래 쥐는 느린 쿼리가 있으면 다들 기다림
+        → 인덱스(B+ 트리)로 쿼리를 짧게 해서 lock 쥐는 시간을 줄임   (Phase 2)
+```
+
+| 문제 | 해결 | 숫자로 보면 |
+| --- | --- | --- |
+| 서버가 요청을 하나씩만 처리해서, 느린 클라이언트 하나가 전체를 멈춤 | **Thread Pool** ... | 느린 연결 3개가 붙잡아도 다른 요청은 약 1ms (4개면 약 0.6초) |
+| 스레드가 여럿이 되자 동시에 INSERT하면 id가 겹침 | **lock** ... | lock 없으면 서로 다른 id 16개, 있으면 1~100 정확 |
+| 데이터가 많으면 찾기가 느림 | **B+ 트리 인덱스** ... | 100만 건에서 id로 0.017ms, 다른 열로 1,524ms |
 
 | 문제 | 해결 | 숫자로 보면 |
 | --- | --- | --- |
@@ -89,7 +103,8 @@ python3 server.py --workers 1 --queue 1
 (sleep 3 | nc localhost 8000 &) && (sleep 3 | nc localhost 8000 &) && sleep 0.3 && curl -s -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'
 ```
 ---
-🎮 [동시 접속 Thread Pool · lock · 503 시뮬레이터 (AI Studio)](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e) · 같은 내용의 파일은 [`docs/study/threadpool_simulator.html`](docs/study/threadpool_simulator.html) (내려받아 브라우저로 열기)
+
+[동시 접속 Thread Pool · lock · 503 시뮬레이터 (AI Studio)](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e) · 같은 내용의 파일은 [`docs/study/threadpool_simulator.html`](docs/study/threadpool_simulator.html) (내려받아 브라우저로 열기)
 
 ### 왜 이벤트 루프 대신 스레드 여러 개(Thread Pool)를 썼나요?
 
