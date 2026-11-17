@@ -274,7 +274,7 @@ def main(server_class=PooledHTTPServer, handler_class=Handler):
     except OSError as e:                      # Phase 3(17단계): data/ 폴더가 없는 곳에서 켠 경우
         sys.exit(f"데이터 폴더를 열 수 없습니다 (저장소 맨 위 폴더에서 실행하세요): {e}")
     try:
-        server = server_class(("localhost", args.port), handler_class, engine, args.workers, args.queue)
+        server = server_class((args.host, args.port), handler_class, engine, args.workers, args.queue)
     except (OSError, OverflowError) as e:     # Phase 3(17단계): 포트가 이미 쓰임, 없는 포트 번호 등
         sys.exit(f"서버를 켤 수 없습니다 (포트 {args.port}): {e}")
 ```
@@ -287,7 +287,8 @@ if __name__ == "__main__":
 
 | 옵션 | 기본값 | 쓰는 곳 |
 | --- | --- | --- |
-| `--port` | 8000 | mini-redis 데모와 같은 컴퓨터에서 띄울 때 포트가 겹치지 않게 ([D36](./DECISIONS.md#step15)) |
+| `--host` | `localhost` | 받을 주소. 내 컴퓨터에서만 받으려면 기본값, Render 같은 곳에 배포할 때는 `0.0.0.0` (바깥에서 오는 요청도 받음) |
+| `--port` | 8000 | mini-redis 데모와 같은 컴퓨터에서 띄울 때 포트가 겹치지 않게 ([D36](./DECISIONS.md#step15)). `0`이면 운영체제가 빈 포트를 골라 주고, 켤 때 실제 포트가 찍힘 |
 | `--workers` | 4 | 일하는 스레드 수. 1 이상만 ([D35](./DECISIONS.md#step15)) |
 | `--queue` | 16 | 큐 칸 수. 1 이상만. 503 시연 때 작게 줄임. `0`은 막음: 파이썬에서 `Queue(0)`은 "크기 제한 없음"이라 503이 사라짐 |
 

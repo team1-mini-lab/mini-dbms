@@ -228,6 +228,7 @@ def positive_int(text):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="미니 DBMS API 서버")
+    parser.add_argument("--host", default="localhost", help="받을 주소 (기본 localhost. 배포할 때는 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="받을 포트 (기본 8000)")
     parser.add_argument("--workers", type=positive_int, default=4, help="미리 만들어 둘 스레드 수 (기본 4)")
     parser.add_argument("--queue", type=positive_int, default=16, help="기다릴 수 있는 요청 수 (기본 16)")
@@ -241,10 +242,11 @@ def main(server_class=PooledHTTPServer, handler_class=Handler):
     except OSError as e:                      # Phase 3(17단계): data/ 폴더가 없는 곳에서 켠 경우
         sys.exit(f"데이터 폴더를 열 수 없습니다 (저장소 맨 위 폴더에서 실행하세요): {e}")
     try:
-        server = server_class(("localhost", args.port), handler_class, engine, args.workers, args.queue)
+        server = server_class((args.host, args.port), handler_class, engine, args.workers, args.queue)
     except (OSError, OverflowError) as e:     # Phase 3(17단계): 포트가 이미 쓰임, 없는 포트 번호 등
         sys.exit(f"서버를 켤 수 없습니다 (포트 {args.port}): {e}")
-    print(f"http://localhost:{args.port} 에서 POST /query 를 기다립니다 (스레드 {args.workers}개, 큐 {args.queue}칸)")
+    port = server.server_address[1]           # --port 0이면 운영체제가 고른 빈 포트
+    print(f"http://{args.host}:{port} 에서 POST /query 를 기다립니다 (스레드 {args.workers}개, 큐 {args.queue}칸)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
