@@ -63,8 +63,15 @@ DESIGN 17단계 완료 기준입니다.
 서버가 내는 응답 번호는 이 표에 있는 것뿐입니다. 파이썬 `http.server`가 스스로 내는 다른 번호(414, 431, 501, 505)도 이 표의 번호로 바꿔서 보냅니다 (②).
 
 ```json
-{"error": {"code": "bad_sql", "message": "2번째 문장: 아직 처리할 수 없는 SQL입니다: SELEC 1"},
+{"error": {"code": "bad_sql", "message": "2번째 문장: 테이블 'users' 에 컬럼 'email' 이 없습니다"},
  "results": [{"type": "insert", "id": 1}]}
+```
+
+문법이 틀린 문장(예: `SELEC 1`)이 하나라도 섞이면 Phase 1 처리기는 **문장 전체를 거절**하고 아무것도 실행하지 않습니다. 그때는 `results`가 비어 있고, 메시지에 틀린 곳의 줄:칸이 붙습니다.
+
+```json
+{"error": {"code": "bad_sql", "message": "문법 오류라 아무 문장도 실행하지 않았습니다: 1:50: SELECT 또는 INSERT 이 와야 하는데 식별자 'selec' 가 왔습니다"},
+ "results": []}
 ```
 
 ## A. 오류 응답 · [`server.py`](../../server.py), [`engine.py`](../../engine.py)
@@ -548,13 +555,13 @@ python3 server.py
 curl -s -X GET  localhost:8000/query
 curl -s -X POST localhost:8000/abc -d '{"sql": "SELECT * FROM users;"}'
 curl -s -X POST localhost:8000/query -d 'not json'
-curl -s -X POST localhost:8000/query -d "{\"sql\": \"INSERT INTO users (name, age) VALUES ('현지', 25); SELEC 1;\"}"
+curl -s -X POST localhost:8000/query -d "{\"sql\": \"INSERT INTO users (name, age) VALUES ('현지', 25); SELECT * FROM users WHERE email = 'x';\"}"
 ```
 ```
 {"error": {"code": "method_not_allowed", "message": "GET는 받지 않습니다. POST /query 를 쓰세요"}}
 {"error": {"code": "not_found", "message": "없는 주소입니다: /abc (POST /query 만 있습니다)"}}
 {"error": {"code": "bad_request", "message": "본문을 읽을 수 없습니다: Expecting value: line 1 column 1 (char 0)"}}
-{"error": {"code": "bad_sql", "message": "2번째 문장: 아직 처리할 수 없는 SQL입니다: SELEC 1"}, "results": [{"type": "insert", "id": 1}]}
+{"error": {"code": "bad_sql", "message": "2번째 문장: 테이블 'users' 에 컬럼 'email' 이 없습니다"}, "results": [{"type": "insert", "id": 1}]}
 ```
 
 터미널 1의 로그:

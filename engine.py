@@ -102,7 +102,8 @@ class Engine:
         try:
             statements = parse(sql)
         except ValueError as e:         # 문법 오류: minidb는 문장 전체를 거절한다 (하나도 실행하지 않음)
-            return [{"type": "error", "message": str(e)}]
+            return [{"type": "error", "stage": "parse",
+                     "message": f"문법 오류라 아무 문장도 실행하지 않았습니다: {e}"}]
         results = []
         for stmt in statements:
             try:
