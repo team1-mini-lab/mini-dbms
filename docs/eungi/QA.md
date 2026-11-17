@@ -170,3 +170,64 @@ engine = Engine("data")
             self.index[cmd.table].insert(new_id, offset)                 # 49줄: 인덱스 등록
             return {"type": "insert", "id": new_id}
 ```
+
+
+## 3. 같은 `insert` / `search`를 가진 B+ 트리로 교체하는 부분
+
+쉽게 말하면 **"나중에 `dict`를 B+ 트리로 바꿀 때 `engine.py`를 다 뜯어고치지 않으려고, 미리 함수 이름 2개를 맞춰놨다"**는 뜻입니다.
+
+만약 `engine.py`에 파이썬 `dict` 문법(`self.index[table][id] = offset`, `.get(id)`)을 그대로 써놨다면, 나중에 B+ 트리를 만들었을 때 `engine.py` 안을 전부 찾아서 고쳐야 합니다. 그래서 지금 `index.py`(**1~11줄**)를 보면 굳이 `DictIndex`라는 껍데기 클래스를 만들어서 함수 이름을 딱 2개(`insert`, `search`)로 정해뒀습니다.
+
+```python
+# index.py (1~11줄)
+class DictIndex:
+    """2단계 임시 인덱스. 12단계에서 같은 두 함수를 가진 B+ 트리로 바꾼다."""
+
+    def __init__(self):
+        self._d = {}
+
+    def insert(self, key, value):   # 저장할 땐 무조건 insert(id, 위치)
+        self._d[key] = value
+
+    def search(self, key):          # 찾을 땐 무조건 search(id) → 위치 또는 None
+        return self._d.get(key)
+```
+
+덕분에 `engine.py`에서도 인덱스 내부가 `dict`인지 B+ 트리인지 신경 쓰지 않고, 전체 코드 중 **딱 세 군데(23줄, 49줄, 67줄)에서 `.insert(...)`와 `.search(...)` 두 이름만** 부르고 있습니다.
+
+```python
+# engine.py 내 인덱스 사용 3곳 전부
+# 1) __init__ (23줄): 켜질 때 파일 읽으면서 insert
+self.index[table].insert(row[0], offset)
+
+# 2) _run - INSERT (49줄): 방금 쓴 줄의 id와 offset을 insert
+self.index[cmd.table].insert(new_id, offset)
+
+# 3) _run - SELECT WHERE id = ? (67~68줄): search로 offset 조회 (없으면 None)
+offset = self.index[cmd.table].search(where.value)
+rows = [] if offset is None else [self.storage.read_at(cmd.table, offset)]
+```
+
+- **68줄**(`if offset is None`)처럼 첫 번째 줄의 `offset`은 `0`이기 때문에, B+ 트리의 `search`도 못 찾을 때는 반드시 `None`을 돌려줘야 `0`과 구별됩니다.
+
+그래서 B+ 트리 담당자(김소망 님)는 `bptree.py`에 `BPlusTree` 클래스를 만드실 때 속은 B+ 트리로 구현하더라도 **겉의 `insert(key, value)`와 `search(key)` 이름·동작만 `index.py`와 똑같이** 맞춘 뒤, 먼저 아래 명령어로 단독 채점을 돌릴 수 있습니다.
+
+```bash
+python3 checks/check_index.py bptree BPlusTree
+```
+
+- 빈 인덱스(`None`), 정순 1만 건, 무작위 1만 건, 같은 키 덮어쓰기, `offset = 0` 조회 총 6가지(`height()`가 있으면 트리 높이도 출력)를 엔진에 붙이기 전에 혼자 테스트해 줍니다.
+
+테스트를 통과하면 마지막에 `engine.py`에서 **"어떤 인덱스를 쓸지" 정하는 딱 두 줄(4줄, 20줄)만** 바꾸면 나머지 코드는 한 글자도 안 고쳐도 바로 B+ 트리로 돌아갑니다.
+
+```python
+# engine.py (4줄, 20줄)
+# 변경 전
+from index import DictIndex          # 4줄
+...
+self.index[table] = DictIndex()      # 20줄
+
+# 변경 후
+from bptree import BPlusTree         # 4줄
+...
+self.index[table] = BPlusTree()      # 20줄
