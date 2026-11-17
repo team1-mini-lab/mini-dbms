@@ -1,4 +1,22 @@
-data/*.tbl
-__pycache__/
+# macOS
 .DS_Store
+._*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 에디터
+.vscode/
+.idea/
+*.swp
+
+# 실행하면 생기는 데이터 (스키마만 저장소에 둠)
+data/*.tbl
+!data/schema.json
 bench/*.sql

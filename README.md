@@ -97,6 +97,14 @@ python3 server.py --workers 1 --queue 1
 # 터미널 2: 앞 2칸을 점유한 상태에서 3번째 요청 → 즉시 503 busy 응답
 (sleep 3 | nc localhost 8000 &) && (sleep 3 | nc localhost 8000 &) && sleep 0.3 && curl -s -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'
 ```
+
+### 4. Phase 1 SQL 처리기 단독 실행 (`minidb/`)
+```bash
+python3 -m minidb examples/students.sql      # 처리기만 따로 실행 (표 모양 출력)
+pip install -r requirements-dev.txt && pytest  # 처리기 단위 테스트 (pytest 필요)
+```
+`python3 cli.py`와 `python3 server.py`도 같은 처리기를 엔진(`engine.py`)을 거쳐 씁니다. 파이썬 3.10 이상이 필요합니다.
+
 ---
 
 🎮 **시뮬레이터로 눌러 보기**: [`docs/study/threadpool_simulator.html`](docs/study/threadpool_simulator.html)을 내려받아 브라우저로 열고 요청을 보내 보면, 스레드 4개가 큐에서 요청을 꺼내 가고, 엔진 앞(lock)에서 한 명씩 줄을 서고, 스레드와 큐가 모두 차면 503이 나는 모습을 볼 수 있습니다. 느린 손님을 보내면 그 스레드만 붙잡히고 나머지는 계속 일하는 것도 보입니다. 설명용이라 시간은 실제보다 느리게 흐릅니다. (같은 시뮬레이터가 [AI Studio](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e)에도 있지만, 로그인이 필요할 수 있고 503 표시를 고치기 전 판입니다.)
