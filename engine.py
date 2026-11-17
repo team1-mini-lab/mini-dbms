@@ -47,7 +47,7 @@ class Engine:
         for stmt in [s.strip() for s in sql.split(";") if s.strip()]:   # 임시: Phase 1(4단계)에서 토큰 뒤에 나눔
             try:
                 results.append(self._run(parse(stmt)))
-            except Exception as e:
+            except ValueError as e:                       # Phase 3(17단계): SQL이 틀린 것만 결과에 담음. 그 밖(디스크 오류 등)은 위로 → 서버는 500
                 results.append({"type": "error", "message": str(e)})
                 if stop_on_error:
                     break                                 # 뒤 문장은 실행하지 않음

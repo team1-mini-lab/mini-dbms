@@ -142,7 +142,7 @@ from parser import Insert, parse
             self.next_id[table] = last + 1                           # 25줄: 제일 큰 id + 1 로 다음 번호 복구
 ```
 
-> **주의**: `cli.py` **7줄**과 `server.py` **6줄**을 보면 두 프로그램이 각각 따로 `Engine("data")`를 만들어 자기 메모리에 `next_id`를 들고 있습니다. 그래서 서버를 켜 둔 채로 CLI로 `INSERT`하면 `id`가 겹치므로, 쓰는 작업은 둘 중 하나만 해야 합니다.
+> **주의**: `cli.py`와 `server.py`를 보면 두 프로그램이 각각 따로 `Engine("data")`를 만들어 자기 메모리에 `next_id`를 들고 있습니다. 그래서 서버를 켜 둔 채로 CLI로 `INSERT`하면 `id`가 겹치므로, 쓰는 작업은 둘 중 하나만 해야 합니다.
 
 ```python
 # cli.py (6~10줄) — 실행할 때마다 새로 생성 후 종료 시 메모리 해제
@@ -152,8 +152,8 @@ def main():
         for result in engine.execute(f.read()):
             print(result)
 
-# server.py (6줄) — 서버 켜질 때 1번 생성해서 메모리에 계속 유지
-engine = Engine("data")
+# server.py의 main() — 서버 켜질 때 1번 생성해서 메모리에 계속 유지 (Phase 3에서 맨 위 → main() 안으로 옮김, D41)
+        engine = Engine("data")
 ```
 
 또 **파일 위치 삭제나 수정이 없는 이유**는, `storage.py` 전체(**1~35줄**)에 `append`, `read_at`, `scan` 3개만 있고 `DELETE`/`UPDATE` 함수가 아예 없기 때문입니다. **14줄**처럼 `"ab"` 모드로 파일 맨 끝에 붙이기만 하므로, 중간 줄이 지워지거나 바뀌지 않아 한 번 쓴 줄의 `offset`이 절대 밀리지 않고 인덱스에서 삭제할 일도 없습니다.

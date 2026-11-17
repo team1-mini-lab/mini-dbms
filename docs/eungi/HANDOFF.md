@@ -1,12 +1,12 @@
-# 인수인계: 지도 만들기(0\~3단계)
+# 인수인계: 지도 만들기(0\~3단계)와 Phase 3(15\~17단계)
 
-**누가**: 은기 · **브랜치**: `eungi` · **다음 담당**: Phase 1(SQL 처리기, 4\~9단계), Phase 2(B+ 트리, 10\~14단계)
+**누가**: 은기 · **브랜치**: `eungi` · **다음 담당**: Phase 1(SQL 처리기, 4\~9단계), Phase 2(B+ 트리, 10\~14단계). Phase 3(15\~17단계)는 은기가 이어서 함 (7절)
 
-**읽는 순서**: 이 문서 → [DESIGN 2절 접점](../DESIGN.md#2-구조)(파일끼리의 약속) → [DESIGN 3절](../DESIGN.md#3-개발-순서)에서 내 Phase의 표. 단계별 자세한 설명은 [STEP0](./STEP0.md) · [STEP1](./STEP1.md) · [STEP2](./STEP2.md) · [STEP3](./STEP3.md), Phase 3는 [STEP16](./STEP16.md) · [STEP15](./STEP15.md), 정한 것의 전체 목록은 [결정 기록](./DECISIONS.md), **팀원 Q&A 보충은 [QA](./QA.md)**에 있습니다.
+**읽는 순서**: 이 문서 → [DESIGN 2절 접점](../DESIGN.md#2-구조)(파일끼리의 약속) → [DESIGN 3절](../DESIGN.md#3-개발-순서)에서 내 Phase의 표. 단계별 자세한 설명은 [STEP0](./STEP0.md) · [STEP1](./STEP1.md) · [STEP2](./STEP2.md) · [STEP3](./STEP3.md), Phase 3는 [STEP16](./STEP16.md) · [STEP15](./STEP15.md) · [STEP17](./STEP17.md), 정한 것의 전체 목록은 [결정 기록](./DECISIONS.md), **팀원 Q&A 보충은 [QA](./QA.md)**에 있습니다.
 
 ## 🔄 수정사항 (처음 공유한 뒤 바뀐 것)
 
-처음 공유한 뒤 아래가 바뀌었습니다. **코드 동작이 바뀐 것은 1번 하나**이고, 나머지는 문서와 확인 도구입니다.
+처음 공유한 뒤 아래가 바뀌었습니다. **코드 동작이 바뀐 것은 1번, 7번, 8번**이고, 나머지는 문서와 확인 도구입니다.
 
 | # | 무엇이 | 어떻게 바뀌었나 | 영향 |
 | --- | --- | --- | --- |
@@ -16,6 +16,8 @@
 | 4 | 확인 스크립트 | `checks/` 폴더 추가 (`check_all`, `check_parser`, `check_index`) | 새 파일. 기존 코드는 안 바뀜 |
 | 5 | OVERVIEW 1절 그림 | "모든 단계가 끝난 뒤의 모습"이라는 안내와, 지금 코드와의 차이 표를 넣었습니다 | 문서만 |
 | 6 | 결정 기록 | 결정마다 번호(D1–D30)를 붙였습니다 | 문서만 |
+| 7 | **서버** (Phase 3) | 요청을 스레드 4개가 동시에 처리(15단계), 모든 오류가 `{"error": {"code", "message"}}` JSON(17단계), 엣지 케이스 방어는 `server_guard.py`. 켜는 명령은 그대로 `python3 server.py` | `server.py`, `server_guard.py`(새로). [STEP15](./STEP15.md), [STEP17](./STEP17.md) |
+| 8 | **엔진이 문장 오류로 받는 예외** (Phase 3 17단계) | 전에는 모든 예외, 이제는 `ValueError`만. 디스크 오류 같은 서버 고장은 위로 올라가 서버는 500, CLI는 멈춤 | `engine.py`의 `execute` 한 줄. **Phase 1은 SQL 오류를 `ValueError`로 내면 됨** (지금도 그럼). [D47](./DECISIONS.md#step17) |
 
 ## 먼저 알아 둘 네 가지
 
@@ -33,7 +35,7 @@
 | 0. 준비 | `data/schema.json`(테이블 모양), `examples/`(확인용 SQL) |
 | 1. CLI | 터미널에서 SQL 파일 실행. `INSERT`하면 id가 자동으로 붙고, 다시 켜도 이어짐 |
 | 2. 임시 인덱스 | `WHERE id = ?`는 dict 목차로 그 한 줄만 읽음. 다른 열은 처음부터 읽으며 거름 |
-| 3. API 서버 | `POST /query`로 SQL을 받아 CLI와 같은 결과를 JSON으로 돌려줌 (한 번에 요청 하나) |
+| 3. API 서버 | `POST /query`로 SQL을 받아 CLI와 같은 결과를 JSON으로 돌려줌 (3단계에서는 한 번에 요청 하나. 15단계부터 Thread Pool) |
 
 두 검토자(설계 쪽, 구현 쪽)가 서로 따로 코드를 돌려 보고 교차 검토해서 아래를 고쳤습니다: 다른 열 WHERE 거르기, 틀린 INSERT가 번호를 건너뛰지 않게, INSERT 열 검사(없는 열·빠진 열·중복·id 직접 넣기), WHERE 값 타입 검사, 잘못된 요청에 400 응답.
 
@@ -75,12 +77,14 @@ curl -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users WHERE 
 
 ```
 cli.py ─┐
-        ├─→ engine.py ─→ parser.py   (임시 파서: 정규식)
-server.py┘     │
+        ├─→ engine.py 🔒 ─→ parser.py   (임시 파서: 정규식)
+server.py┘     │                       (🔒 = Phase 3 16단계 lock)
+ └ server_guard.py (엣지 케이스 방어, Phase 3 17단계)
                ├─→ storage.py        (파일 쓰기/읽기)
                └─→ index.py          (dict 목차)
 
-checks/        내 작업이 기존 동작을 깨지 않았는지 확인하는 스크립트 (5절, 6절)
+checks/        내 작업이 기존 동작을 깨지 않았는지 확인하는 스크립트 (5절, 6절, 7절)
+bench/         D35(스레드 4개, 큐 16칸)의 숫자 근거를 재는 스크립트 (Phase 3)
 ```
 
 **접점** = 파일끼리 주고받는 약속(함수 이름, 넘기는 값, 돌려받는 값). 약속만 지키면 파일 안을 바꿔도 다른 파일은 안 고쳐도 됩니다. 원본은 [DESIGN 2절](../DESIGN.md#2-구조)이고, 아직 **제안** 상태라 첫 회의에서 정합니다. 지금 코드는 이 제안대로 만들어져 있습니다.
@@ -88,13 +92,14 @@ checks/        내 작업이 기존 동작을 깨지 않았는지 확인하는 �
 | 파일 | 하는 일 | 다른 파일과의 약속 |
 | --- | --- | --- |
 | `cli.py` | SQL 파일을 읽어 엔진에 넘기고 출력 | `engine.execute(sql)` |
-| `server.py` | HTTP로 받은 SQL을 엔진에 넘기고 JSON으로 응답 | 접점 4: `POST /query` `{"sql": "..."}` |
+| `server.py` | HTTP로 받은 SQL을 엔진에 넘기고 JSON으로 응답. Thread Pool(15단계), 오류 JSON(17단계) | 접점 4: `POST /query` `{"sql": "..."}` |
+| `server_guard.py` | `server.py`의 클래스를 이어받아 엣지 케이스(느린 연결, 이상한 `Content-Length` 등)를 막음. `python3 server.py`로 켜면 기본으로 켜짐 | `server.py`의 `Handler`, `PooledHTTPServer` |
 | `engine.py` | 문장 나누기, 파서 부르기, **실행**(검사, id 붙이기, 목차/파일 사용) | 접점 1: 결과는 `{"type": "insert" / "select" / "error", ...}` |
 | `parser.py` | SQL 문장 → 정해진 모양(`Insert` / `Select` / `Where`) | 접점 2 (아래 5절에 예시) |
 | `storage.py` | `append` (끝에 쓰고 위치 반환), `read_at` (위치로 한 줄), `scan` (처음부터) | 엔진만 씀 |
 | `index.py` | `insert(id, 위치)`, `search(id)` → 위치 또는 `None` | 접점 3 |
 
-**[전체 그림(OVERVIEW) 1절](../study/OVERVIEW.md)의 그림과 다른 이유**: 그 그림은 모든 단계가 끝난 뒤의 모습입니다. 지금은 아래 넷이 아직 없습니다. `tokenizer.py`는 Phase 1(4단계), `executor.py`는 Phase 1(6단계)에 생기고 그 전까지는 `engine.py` 안에 있습니다. `bptree.py`는 Phase 2(12단계)에 `index.py`를 대신하고, lock은 Phase 3(16단계)에 생깁니다. 차이 표는 OVERVIEW 1절 그림 바로 아래에 있습니다.
+**[전체 그림(OVERVIEW) 1절](../study/OVERVIEW.md)의 그림과 다른 이유**: 그 그림은 모든 단계가 끝난 뒤의 모습입니다. 지금은 아래 넷이 아직 없습니다. `tokenizer.py`는 Phase 1(4단계), `executor.py`는 Phase 1(6단계)에 생기고 그 전까지는 `engine.py` 안에 있습니다. `bptree.py`는 Phase 2(12단계)에 `index.py`를 대신합니다. lock은 Phase 3(16단계)에서 이미 생겼습니다. 차이 표는 OVERVIEW 1절 그림 바로 아래에 있습니다.
 
 "실행기"는 `engine.py` 안의 `_run`처럼 **파서가 만든 명령을 실제로 수행하는 부분**을 말합니다. 지금은 `engine.py` 안에 있고, 나중에 `executor.py`로 떼어 낼 수 있습니다.
 
@@ -239,17 +244,48 @@ Phase 3 안에서는 16단계(lock) → 15단계(Thread Pool) → 17단계(오�
 | 단계 | 상태 | 작업 기록 | 결정 |
 | --- | --- | --- | --- |
 | Phase 3(16단계) lock | 완료. 스레드 100개 동시 INSERT → id 1\~100 빠짐없이 | [STEP16](./STEP16.md) | [D31\~D33](./DECISIONS.md#step16) |
-| Phase 3(15단계) Thread Pool | 완료. 스레드 4개가 동시 요청을 나눠 처리, 큐가 차면 503, 5초 timeout | [STEP15](./STEP15.md) | [D34\~D37, D40, D41](./DECISIONS.md#step15) |
-| Phase 3(17단계) API 오류 응답 | 완료. 400·404·405·408·413·500·503 JSON 통일 + 1MB/전체시간 제한 + 부하 테스트 | [STEP17](./STEP17.md) | [D38\~D39, D42\~D46](./DECISIONS.md#step17) |
+| Phase 3(15단계) Thread Pool | 완료. 스레드 4개가 동시 요청을 나눠 처리, 큐가 차면 503 | [STEP15](./STEP15.md) | [D34\~D37, D40, D41](./DECISIONS.md#step15) |
+| Phase 3(17단계) API 오류 응답 | 완료. 모든 오류 JSON 한 모양, 서버 고장은 500. 엣지 케이스 방어는 `server_guard.py` | [STEP17](./STEP17.md) | [D38, D39, D42\~D48](./DECISIONS.md#step17) |
 
-**Phase 1·2에게**: lock은 `execute` 위에 `@locked` 한 줄로 걸었습니다. `execute` 안을 고쳐도 충돌하지 않습니다. 엔진이 한 번에 하나씩만 실행하므로 B+ 트리는 동시성을 신경 쓰지 않아도 됩니다.
+**확인 스크립트**: `check_concurrency.py`(16), `check_threadpool.py`(15), `check_errors.py`(17, `server.py`), `check_guard.py`(17, `server_guard.py`).
+
+**Phase 2에게**: 엔진이 한 번에 하나씩만 실행하므로 B+ 트리는 동시성을 신경 쓰지 않아도 됩니다. PR #1(B+ 트리)을 eungi에 시험 삼아 합쳐 보니 충돌 없이 합쳐지고 확인 스크립트가 모두 통과했습니다.
+
+**Phase 1(hnjee)과 합칠 때** ⚠️ `engine.py`의 `execute` 머리에서 충돌이 **납니다** (교차 검토에서 실제로 합쳐 봄). 원인은 `@locked`가 아니라 eungi의 `stop_on_error` 인자입니다. 한쪽만 고르면 서버 요청이 전부 실패하니, 아래 모양으로 풀어 주세요.
+
+```python
+    @locked                                                # 데코레이터는 def 바로 위
+    def execute(self, sql, stop_on_error=False):           # eungi 시그니처 유지 (server.py가 stop_on_error=True로 부름)
+        """CLI는 기본값(틀린 문장이 있어도 계속), 서버는 stop_on_error=True(첫 오류에서 멈춤)로 부른다."""
+        try:
+            statements = split_statements(tokenize(sql))   # hnjee 그대로
+        except TokenizeError as e:
+            return [{"type": "error", "message": str(e)}]
+        results = []
+        for tokens in statements:
+            text = sql[tokens[0].pos:tokens[-1].end]
+            try:
+                results.append(self._run(parse(text)))
+            except ValueError as e:                        # eungi 17단계(D47): SQL 오류만 담음
+                results.append({"type": "error", "message": str(e)})
+                if stop_on_error:
+                    break
+        return results
+```
+
+- import는 두 쪽을 모두 남깁니다: `functools`, `threading`(eungi) + `tokenizer`(hnjee).
+- `server.py`, `server_guard.py`는 eungi 것을 그대로 씁니다.
+- 합친 뒤 확인 스크립트를 모두 돌려 봅니다. 위 모양으로 합친 사본에서 `check_all`, `check_concurrency`, `check_threadpool`, `check_errors`가 통과했습니다.
+- 합치면 끝에 `;`가 없는 API 요청이 400이 됩니다. 받아 줄지는 [결정 기록 "아직 안 정한 것"](./DECISIONS.md)에 올려 두었습니다.
+
+**현지 님에게 알릴 것 (D47)**: 엔진이 `ValueError`만 "SQL이 틀림"으로 받기로 바꿨습니다. 앞으로도 SQL 오류는 `ValueError`(또는 그 하위)로 내 주세요. 지금 파서·토크나이저는 이미 그렇게 되어 있습니다. SQL이 틀렸을 때 CLI는 지금처럼 계속하고(D9), 디스크 고장처럼 드문 경우에만 멈춥니다.
 
 ## 8. 지금 코드가 따르는 것 / 바뀔 가능성이 큰 것
 
 | 지금 코드가 이렇게 동작함 (회의에서 확정 전) | 회의에서 바뀔 가능성이 큰 것 |
 | --- | --- |
 | 접점 1\~3의 모양 (위 표들) | 파일 이름과 나누는 방식 (`executor.py`를 떼어 낼지 등) |
-| `schema.json` 모양, 저장 형식(JSON 배열) | API 오류 응답 규칙 |
+| `schema.json` 모양, 저장 형식(JSON 배열) | API 오류 응답 규칙 (지금 코드는 D38. DESIGN 접점 4에 옮길지 회의에서) |
 
 모두 아직 팀 합의 전입니다. 왼쪽은 지금 코드가 이미 이렇게 되어 있어서, 회의 전에 시작한다면 일단 맞춰 두면 되는 것들입니다.
 
@@ -269,4 +305,4 @@ Phase 3 안에서는 16단계(lock) → 15단계(Thread Pool) → 17단계(오�
 | Phase 1 | 실행기를 `executor.py`로 떼어 낼지, 다음 번호와 목차를 누가 가질지. Phase 1(6단계) 담당이 정하고 DECISIONS에 기록 | Phase 1(6단계) |
 | 팀 회의 | 파일 나누기와 접점 1\~4를 이대로 갈지 | 첫 회의 |
 | 팀 회의 | DESIGN 4절 "전체" 결정 4줄 (파이썬, 지도부터, 표준 라이브러리만, CLI와 서버가 같은 `execute`) | 첫 회의 |
-| 팀 회의 | CLI와 서버를 같이 쓸 때 id 겹침을 규칙으로 둘지 코드로 막을지 | Phase 3(16단계) 전 |
+| 팀 회의 | CLI와 서버를 같이 쓸 때 id 겹침: 규칙(D29)으로 둠. 회의에서 확인만 | 다음 회의 |
