@@ -79,6 +79,5 @@ python3 server.py --workers 1 --queue 1
 (sleep 3 | nc localhost 8000 &) && (sleep 3 | nc localhost 8000 &) && sleep 0.3 && curl -s -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'
 ```
 ---
-동시접속 Thread Pool 락 오프셋 시뮬레이터는 https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e
-더 많은 요청(503 바쁨, 408 시간 초과 등)과 서버 없이 도는 확인 스크립트는 [시연 순서](docs/eungi/DEMO.md)에 있습니다. 
+동시접속 Thread Pool 락 오프셋 시뮬레이터는 https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e에 있습니다.
 "왜 DBMS인가"의 문제 1·2·3을 SQLite로 보여 주는 예전 시연은 [시연 설명](docs/study/WHY_DBMS/why_dbms_demo/README.md)에 그대로 있습니다.
