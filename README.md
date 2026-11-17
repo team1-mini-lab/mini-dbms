@@ -33,7 +33,7 @@ Thread Pool로 여러 요청을 동시에 처리                    (Phase 3, 15
 | 2 | [전체 그림](docs/study/OVERVIEW.md) | 우리가 만들 DBMS 안에서 SQL 한 줄이 파일에 저장되고 다시 꺼내지기까지를 예시로 보고 싶을 때 |
 | 3 | [설계](docs/DESIGN.md) | 단계별로 무엇을 만들고, 언제 완료인지, 어떤 방식을 제안했는지 볼 때 |
 | 4 | [학습 노트](docs/study/DBMS_study.md) | 구현하면서 "왜 이렇게 만드나"를 설명할 수 있는지 스스로 확인하고 싶을 때 |
-| 5 | [지도 만들기 · 인수인계](docs/eungi/HANDOFF.md) | 작은 워킹 샘플을 만들기. Phase 1과 합칠 때 맞출 곳은 7절 |
+| 5 | [HANDOFF](docs/eungi/HANDOFF.md) | 작은 워킹 샘플(지도 만들기)과 Phase 3를 돌려 보고, 각자 이어서 만들 곳을 볼 때. Phase 1과 합친 기록은 7절 |
 | 6 | [결정 기록](docs/eungi/DECISIONS.md) | "왜 이렇게 만들었나"를 결정 번호로 볼 때 | 
 | 7 | [과제 요구사항](docs/REQUIREMENTS.md) | 과제가 무엇을 요구하는지 원문으로 확인하고 싶을 때 |
 

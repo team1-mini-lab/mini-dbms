@@ -1,10 +1,10 @@
-# 인수인계: 지도 만들기(0\~3단계)와 Phase 3(15\~17단계)
+# HANDOFF: 지도 만들기(0\~3단계)와 Phase 3(15\~17단계)
 
 **누가**: 은기 · **브랜치**: `eungi` · **다음 담당**: Phase 1(SQL 처리기, 4\~9단계), Phase 2(B+ 트리, 10\~14단계). Phase 3(15\~17단계)는 은기가 이어서 함 (7절)
 
 **읽는 순서**: 이 문서 → [DESIGN 2절 접점](../DESIGN.md#2-구조)(파일끼리의 약속) → [DESIGN 3절](../DESIGN.md#3-개발-순서)에서 내 Phase의 표. 단계별 자세한 설명은 [STEP0](./STEP0.md) · [STEP1](./STEP1.md) · [STEP2](./STEP2.md) · [STEP3](./STEP3.md), Phase 3는 [STEP16](./STEP16.md) · [STEP15](./STEP15.md) · [STEP17](./STEP17.md), 정한 것의 전체 목록은 [결정 기록](./DECISIONS.md), **팀원 Q&A 보충은 [QA](./QA.md)**, **모르는 말은 [용어 사전](./GLOSSARY.md)**에 있습니다.
 
-> 📖 **처음 읽는다면**: 이 문서는 "다음 사람이 이어서 일할 수 있게 넘겨주는 문서(인수인계)"입니다. **브랜치, 합치기(merge), 충돌, 엔진, 파서, 인덱스, 접점, lock, Thread Pool** 같은 말이 나옵니다. 모르는 말은 [용어 사전](./GLOSSARY.md)에서 찾으세요. Git 관련 말은 [9절](./GLOSSARY.md#git), 우리 프로젝트에서만 쓰는 말은 [10절](./GLOSSARY.md#project)에 있습니다.
+> 📖 **처음 읽는다면**: 이 문서는 처음부터 끝까지 한 번 돌아가는 작은 버전(working sample)을 돌려 보고, 각자 어디를 이어서 만들면 되는지 정리한 문서입니다. **브랜치, 합치기(merge), 충돌, 엔진, 파서, 인덱스, 접점, lock, Thread Pool** 같은 말이 나옵니다. 모르는 말은 [용어 사전](./GLOSSARY.md)에서 찾으세요. Git 관련 말은 [9절](./GLOSSARY.md#git), 우리 프로젝트에서만 쓰는 말은 [10절](./GLOSSARY.md#project)에 있습니다.
 
 ## 🔄 수정사항 (처음 공유한 뒤 바뀐 것)
 
@@ -262,7 +262,7 @@ Phase 3 안에서는 16단계(lock) → 15단계(Thread Pool) → 17단계(오�
 
 **Phase 2에게**: 엔진이 한 번에 하나씩만 실행하므로(lock) B+ 트리는 동시성(여러 스레드가 동시에 부르는 상황)을 신경 쓰지 않아도 됩니다. PR #1(B+ 트리, GitHub에 올린 "합쳐 주세요" 요청 1번)을 eungi에 시험 삼아 합쳐 보니 충돌 없이 합쳐지고 확인 스크립트가 모두 통과했습니다.
 
-**Phase 1(hnjee)과 합칠 때** ⚠️ (2026-11-17 밤, `origin/hnjee`의 `bdded8c step6 엣지케이스` 기준으로 다시 확인)
+**Phase 1(hnjee)과 합칠 때** ✅ 합침 (2026-11-18, [PR #2](https://github.com/team1-mini-lab/mini-dbms/pull/2)). 아래는 합치기 전에 `origin/hnjee`의 `bdded8c step6 엣지케이스` 기준으로 확인한 목록이고, 실제로 어떻게 맞췄는지는 PR #2 본문에 코드와 함께 있습니다.
 
 `hnjee`는 처음 계획과 달리 `engine.py`를 고치지 않고, `minidb/` 폴더에 lexer → parser → executor → storage를 **새로** 만들었습니다(엔진 자리는 비워 두고 데모용 입구만 둠). 그래서 걱정했던 "`def execute` 줄 충돌"은 생기지 않습니다. 대신 아래 두 종류를 맞춰야 합니다. 충돌은 두 브랜치가 **같은 파일을 서로 다르게** 바꿔서 Git이 어느 쪽을 쓸지 몰라 사람에게 고르게 하는 것입니다.
 
