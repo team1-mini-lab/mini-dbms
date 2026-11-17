@@ -109,6 +109,10 @@ pip install -r requirements-dev.txt && pytest  # 처리기 단위 테스트 (pyt
 
 🎮 **시뮬레이터로 눌러 보기**: [`docs/study/threadpool_simulator.html`](docs/study/threadpool_simulator.html)을 내려받아 브라우저로 열고 요청을 보내 보면, 스레드 4개가 큐에서 요청을 꺼내 가고, 엔진 앞(lock)에서 한 명씩 줄을 서고, 스레드와 큐가 모두 차면 503이 나는 모습을 볼 수 있습니다. 느린 손님을 보내면 그 스레드만 붙잡히고 나머지는 계속 일하는 것도 보입니다. 설명용이라 시간은 실제보다 느리게 흐릅니다. (같은 시뮬레이터가 [AI Studio](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e)에도 있지만, 로그인이 필요할 수 있고 503 표시를 고치기 전 판입니다.)
 
+### 할 일이 없을 때, 일하는 스레드는 무엇을 하고 있나요?
+
+![일하는 스레드: 큐가 비면 get()에서 잠들고, put하면 깨어남](docs/images/phase3_worker_idle.png)
+
 ### 왜 Redis처럼 스레드 하나(이벤트 루프)로 하지 않았나요?
 
 | 구분 | 이벤트 루프 (스레드 1개) | 스레드 여러 개 (Thread Pool) |
@@ -122,6 +126,11 @@ pip install -r requirements-dev.txt && pytest  # 처리기 단위 테스트 (pyt
 
 ### 넘칠 때와 멈출 때
 
+![줄이 꽉 차면 503, 클라이언트가 멈추면 408](docs/images/phase3_busy_timeout.png)
+
+<details>
+<summary>글로 보기</summary>
+
 | 상황 | 서버의 답 |
 | --- | --- |
 | 스레드 4개가 모두 바쁘고 큐 16칸도 다 참 (동시에 붙잡을 수 있는 건 4 + 16 = 20개) | 기다리게 하지 않고 바로 **503 busy** |
@@ -129,7 +138,14 @@ pip install -r requirements-dev.txt && pytest  # 처리기 단위 테스트 (pyt
 
 "한 번 받을 때마다 5초"로만 막으면 3초마다 한 글자씩 보내는 연결은 끊기지 않아서, 감시 스레드 1개가 0.05초마다 "받는 시간 전체"를 확인합니다. 감시 스레드는 서버 전체에 하나뿐이라 스레드 수는 그대로 정해져 있습니다.
 
+</details>
+
 ### 요청이 틀렸을 때 서버는 어디서 무엇이라고 답하나요?
+
+![요청은 관문 7개를 차례로 지나고, 걸리면 그 자리의 오류 코드로 답함](docs/images/phase3_error_gates.png)
+
+<details>
+<summary>글로 보기</summary>
 
 요청은 관문 7개를 차례로 지납니다. 답의 모양은 모두 `{"error": {"code", "message"}}` 하나입니다.
 
@@ -144,6 +160,8 @@ pip install -r requirements-dev.txt && pytest  # 처리기 단위 테스트 (pyt
 | ⑦ 실행 | 서버가 고장 나지 않았나? | 500 `internal` (자세한 내용은 로그에만) |
 
 ①\~⑥은 클라이언트 쪽 문제, ⑦만 서버 쪽 문제입니다. 받는 쪽 프로그램은 `error.code` 하나만 보고 "다시 보낼지, 보여 줄지, 관리자에게 알릴지"를 정합니다.
+
+</details>
 
 ## 실제 DBMS와의 차이 (왜 이렇게 만들었나)
 
