@@ -31,7 +31,7 @@ class Node:
 
 
 class BPlusTree:
-    def __init__(self, max_keys=32):
+    def __init__(self, max_keys=256):
         # max_keys: 노드 하나에 담을 수 있는 키의 최대 개수 (차수 실험용으로 바꿔 끼움)
         if max_keys < 3:
             raise ValueError("max_keys는 3 이상이어야 합니다")
