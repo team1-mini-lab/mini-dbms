@@ -2,7 +2,9 @@
 
 **누가**: 은기 · **브랜치**: `eungi` · **다음 담당**: Phase 1(SQL 처리기, 4\~9단계), Phase 2(B+ 트리, 10\~14단계). Phase 3(15\~17단계)는 은기가 이어서 함 (7절)
 
-**읽는 순서**: 이 문서 → [DESIGN 2절 접점](../DESIGN.md#2-구조)(파일끼리의 약속) → [DESIGN 3절](../DESIGN.md#3-개발-순서)에서 내 Phase의 표. 단계별 자세한 설명은 [STEP0](./STEP0.md) · [STEP1](./STEP1.md) · [STEP2](./STEP2.md) · [STEP3](./STEP3.md), Phase 3는 [STEP16](./STEP16.md) · [STEP15](./STEP15.md) · [STEP17](./STEP17.md), 정한 것의 전체 목록은 [결정 기록](./DECISIONS.md), **팀원 Q&A 보충은 [QA](./QA.md)**에 있습니다.
+**읽는 순서**: 이 문서 → [DESIGN 2절 접점](../DESIGN.md#2-구조)(파일끼리의 약속) → [DESIGN 3절](../DESIGN.md#3-개발-순서)에서 내 Phase의 표. 단계별 자세한 설명은 [STEP0](./STEP0.md) · [STEP1](./STEP1.md) · [STEP2](./STEP2.md) · [STEP3](./STEP3.md), Phase 3는 [STEP16](./STEP16.md) · [STEP15](./STEP15.md) · [STEP17](./STEP17.md), 정한 것의 전체 목록은 [결정 기록](./DECISIONS.md), **팀원 Q&A 보충은 [QA](./QA.md)**, **모르는 말은 [용어 사전](./GLOSSARY.md)**에 있습니다.
+
+> 📖 **처음 읽는다면**: 이 문서는 "다음 사람이 이어서 일할 수 있게 넘겨주는 문서(인수인계)"입니다. **브랜치, 합치기(merge), 충돌, 엔진, 파서, 인덱스, 접점, lock, Thread Pool** 같은 말이 나옵니다. 모르는 말은 [용어 사전](./GLOSSARY.md)에서 찾으세요. Git 관련 말은 [9절](./GLOSSARY.md#git), 우리 프로젝트에서만 쓰는 말은 [10절](./GLOSSARY.md#project)에 있습니다.
 
 ## 🔄 수정사항 (처음 공유한 뒤 바뀐 것)
 
@@ -18,6 +20,7 @@
 | 6 | 결정 기록 | 결정마다 번호(D1–D30)를 붙였습니다 | 문서만 |
 | 7 | **서버** (Phase 3) | 요청을 스레드 4개가 동시에 처리(15단계), 모든 오류가 `{"error": {"code", "message"}}` JSON(17단계), 엣지 케이스 방어는 `server_guard.py`. 켜는 명령은 그대로 `python3 server.py` | `server.py`, `server_guard.py`(새로). [STEP15](./STEP15.md), [STEP17](./STEP17.md) |
 | 8 | **엔진이 문장 오류로 받는 예외** (Phase 3 17단계) | 전에는 모든 예외, 이제는 `ValueError`만. 디스크 오류 같은 서버 고장은 위로 올라가 서버는 500, CLI는 멈춤 | `engine.py`의 `execute` 한 줄. **Phase 1은 SQL 오류를 `ValueError`로 내면 됨** (지금도 그럼). [D47](./DECISIONS.md#step17) |
+| 9 | 처음 보는 사람을 위한 설명 | [용어 사전(GLOSSARY)](./GLOSSARY.md)을 새로 만들고, STEP15·16·17, 이 문서, DECISIONS에 비유와 낱말 풀이를 더했습니다. STEP15의 세 방법 비교표를 풀어 썼습니다 | 문서만 |
 
 ## 먼저 알아 둘 네 가지
 
@@ -48,7 +51,15 @@ git fetch
 git checkout -b phase1 origin/eungi     # Phase 2라면 phase2
 ```
 
+| 명령 | 뜻 |
+| --- | --- |
+| `cd 폴더` | 그 폴더로 들어감 (`~`는 내 홈 폴더) |
+| `git fetch` | GitHub에 올라온 최신 기록을 내 컴퓨터로 받아 옴 (내 파일은 아직 안 바뀜) |
+| `git checkout -b phase1 origin/eungi` | GitHub의 `eungi` 브랜치를 바탕으로 `phase1`이라는 내 브랜치를 새로 만들고 그리로 옮겨 감 |
+
 저장소 맨 위 폴더(`mini-dbms`)에서 실행합니다. 설치할 것은 없습니다 (파이썬 3.8 이상).
+
+`rm -f data/users.tbl`은 데이터 파일을 지워서 처음 상태로 만드는 명령입니다 (`rm`은 지우기, `-f`는 파일이 없어도 오류를 내지 않기). 그다음 `python3 cli.py 파일`은 그 SQL 파일을 CLI로 실행합니다.
 
 ```bash
 rm -f data/users.tbl
@@ -230,7 +241,7 @@ rows = [] if offset is None else [self.storage.read_at(cmd.table, offset)]
 | 10. B+ 트리 찾기 | 노드 모양과 찾기 (엔진과 따로) | 손으로 만든 작은 트리에서 키를 찾음 |
 | 11. B+ 트리 넣기 | 넣기와 노드 나누기 | 키 1만 개를 무작위 순서로 넣어도 모두 찾고, 트리 높이가 출력됨 |
 | 12. 인덱스 교체 | dict → B+ 트리 (위 두 줄) | `examples/step2.sql` 결과가 지금과 똑같고, `python3 checks/check_all.py`가 11/11 그대로 |
-| 13. 100만 건 만들기 | `INSERT` 100만 줄짜리 SQL 파일을 만드는 스크립트 | 만든 파일을 CLI로 실행하면 100만 건이 들어감. **서버는 끈 상태로** (위 "먼저 알아 둘 세 가지" 3번) |
+| 13. 100만 건 만들기 | `INSERT` 100만 줄짜리 SQL 파일을 만드는 스크립트 | 만든 파일을 CLI로 실행하면 100만 건이 들어감. **서버는 끈 상태로** (위 "먼저 알아 둘 네 가지" 3번) |
 | 14. 성능 비교 | id로 찾기(`WHERE id = ?`)와 다른 열로 찾기(`WHERE name = ?`)의 시간 측정. 시간은 파이썬 `time.perf_counter()`로 잼 (`used_index`는 목차를 썼는지만 알려 줌) | 1만, 10만, 100만 건에서의 비교가 표로 정리됨 |
 
 다른 열 찾기는 이미 조건대로 거르게 고쳐 두어서, Phase 2(14단계) 비교를 바로 할 수 있습니다.
@@ -249,9 +260,9 @@ Phase 3 안에서는 16단계(lock) → 15단계(Thread Pool) → 17단계(오�
 
 **확인 스크립트**: `check_concurrency.py`(16), `check_threadpool.py`(15), `check_errors.py`(17, `server.py`), `check_guard.py`(17, `server_guard.py`).
 
-**Phase 2에게**: 엔진이 한 번에 하나씩만 실행하므로 B+ 트리는 동시성을 신경 쓰지 않아도 됩니다. PR #1(B+ 트리)을 eungi에 시험 삼아 합쳐 보니 충돌 없이 합쳐지고 확인 스크립트가 모두 통과했습니다.
+**Phase 2에게**: 엔진이 한 번에 하나씩만 실행하므로(lock) B+ 트리는 동시성(여러 스레드가 동시에 부르는 상황)을 신경 쓰지 않아도 됩니다. PR #1(B+ 트리, GitHub에 올린 "합쳐 주세요" 요청 1번)을 eungi에 시험 삼아 합쳐 보니 충돌 없이 합쳐지고 확인 스크립트가 모두 통과했습니다.
 
-**Phase 1(hnjee)과 합칠 때** ⚠️ `engine.py`의 `execute` 머리에서 충돌이 **납니다** (교차 검토에서 실제로 합쳐 봄). 원인은 `@locked`가 아니라 eungi의 `stop_on_error` 인자입니다. 한쪽만 고르면 서버 요청이 전부 실패하니, 아래 모양으로 풀어 주세요.
+**Phase 1(hnjee)과 합칠 때** ⚠️ `engine.py`의 `execute` 머리(`def execute(...)` 줄)에서 충돌이 **납니다** (교차 검토에서 실제로 합쳐 봄). 충돌은 두 브랜치가 **같은 줄을 서로 다르게** 바꿔서 Git이 어느 쪽을 쓸지 몰라 사람에게 고르게 하는 것입니다. 이럴 때는 한쪽을 고르지 말고 두 쪽의 바뀐 점을 모두 담은 모양으로 직접 고쳐 써야 합니다. 원인은 `@locked`가 아니라 eungi의 `stop_on_error` 인자입니다. 한쪽만 고르면 서버 요청이 전부 실패하니, 아래 모양으로 풀어 주세요.
 
 ```python
     @locked                                                # 데코레이터는 def 바로 위
