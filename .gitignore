@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+._*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 에디터
+.vscode/
+.idea/
+*.swp
+
+# 벤치마크 등 대용량 생성 데이터 (10단계에서 scripts로 재생성 가능)
+data/*.tbl
+!data/schema.json
