@@ -45,5 +45,12 @@ class TypeMismatchError(MiniDBError):
     """값의 타입이 컬럼 타입과 맞지 않는다."""
 
 
+class ExecutionError(MiniDBError):
+    """문법도 맞고 테이블과 컬럼도 있지만 이 문장은 실행할 수 없다.
+
+    예: INSERT 에 id 를 지정함, 컬럼을 생략한 INSERT 의 값 수가 스키마와 다름.
+    """
+
+
 class StorageError(MiniDBError):
     """테이블 파일을 읽거나 쓰는 중 문제가 생겼다."""
