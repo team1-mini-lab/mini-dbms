@@ -11,7 +11,22 @@ class MiniDBError(Exception):
 
 
 class ParseError(MiniDBError):
-    """SQL 문법 오류. 토크나이저와 파서가 낸다."""
+    """SQL 문법 오류. 토크나이저와 파서가 낸다.
+
+    line, col 은 원문에서의 위치(1부터 셈)다. 메시지에 박아 넣지 않고 속성으로 두는
+    이유는 CLI 는 "3:12: ..." 로 찍고 서버는 JSON 필드로 따로 실을 수 있게 하기 위해서다.
+    """
+
+    def __init__(self, message: str, line: int | None = None, col: int | None = None):
+        super().__init__(message)
+        self.message = message
+        self.line = line
+        self.col = col
+
+    def __str__(self) -> str:
+        if self.line is None:
+            return self.message
+        return f"{self.line}:{self.col}: {self.message}"
 
 
 class SchemaError(MiniDBError):
