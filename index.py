@@ -10,15 +10,6 @@ class DictIndex:
 
     def search(self, key):
         return self._d.get(key)
-
-
-# ---------------------------------------------------------------------------
-# B+ 트리 인덱스 (Phase 2, 10~11단계) · 담당: 소망
-#
-# 접점 3(DESIGN.md)을 그대로 지킨다.
-#   insert(key, value) : key = id(int), value = 그 줄의 파일 위치(바이트). 같은 키면 덮어씀
-#   search(key)        : 파일 위치, 없으면 None
-# 여기에 범위 조회를 더한다.
 #   range_search(start, end) : start <= id <= end 인 (id, 파일 위치) 목록, id 오름차순
 #
 # 규칙 세 가지 ("넘치면 나누고, 가운데를 올리고, 리프에는 남긴다"):
