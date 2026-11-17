@@ -1,5 +1,7 @@
+import functools
 import json
 import os
+import threading
 
 from index import DictIndex
 from parser import Insert, parse
@@ -8,8 +10,18 @@ from storage import Storage
 TYPES = {"INT": int, "TEXT": str}
 
 
+def locked(method):
+    """Phase 3(16단계): 감싼 함수를 엔진의 lock 안에서 실행한다. 한 번에 한 스레드만 들어간다."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
 class Engine:
     def __init__(self, data_dir):
+        self._lock = threading.Lock()                     # Phase 3(16단계): execute를 한 번에 하나씩
         self.storage = Storage(data_dir)
         with open(os.path.join(data_dir, "schema.json"), encoding="utf-8") as f:
             self.schema = json.load(f)
@@ -24,6 +36,7 @@ class Engine:
                 last = max(last, row[0])
             self.next_id[table] = last + 1
 
+    @locked
     def execute(self, sql, stop_on_error=False):
         """CLI는 기본값(틀린 문장이 있어도 계속), 서버는 stop_on_error=True(첫 오류에서 멈춤)로 부른다."""
         results = []

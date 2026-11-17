@@ -220,7 +220,7 @@ def read_at(self, table, offset):
 
 ## 이 단계에서 정한 것
 
-자세한 이유는 [DECISIONS](./DECISIONS.md)의 해당 번호에 있습니다.
+자세한 이유는 [결정 기록의 지도 만들기(2단계) 절](./DECISIONS.md#step2)에 있습니다.
 
 - **D16** 인덱스는 `dict`로 만들고, `insert`와 `search` 두 함수로만 씁니다 (접점 3).
 - **D17** 못 찾으면 `None`을 돌려주고, SELECT 결과는 빈 목록입니다.

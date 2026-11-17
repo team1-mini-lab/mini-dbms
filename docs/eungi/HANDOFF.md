@@ -2,7 +2,7 @@
 
 **누가**: 은기 · **브랜치**: `eungi` · **다음 담당**: Phase 1(SQL 처리기, 4\~9단계), Phase 2(B+ 트리, 10\~14단계)
 
-**읽는 순서**: 이 문서 → [DESIGN 2절 접점](../DESIGN.md#2-구조)(파일끼리의 약속) → [DESIGN 3절](../DESIGN.md#3-개발-순서)에서 내 Phase의 표. 단계별 자세한 설명은 [STEP0](./STEP0.md) · [STEP1](./STEP1.md) · [STEP2](./STEP2.md) · [STEP3](./STEP3.md), 정한 것의 전체 목록은 [결정 기록](./DECISIONS.md), **팀원 Q&A 보충은 [QA](./QA.md)**에 있습니다.
+**읽는 순서**: 이 문서 → [DESIGN 2절 접점](../DESIGN.md#2-구조)(파일끼리의 약속) → [DESIGN 3절](../DESIGN.md#3-개발-순서)에서 내 Phase의 표. 단계별 자세한 설명은 [STEP0](./STEP0.md) · [STEP1](./STEP1.md) · [STEP2](./STEP2.md) · [STEP3](./STEP3.md), Phase 3는 [STEP16](./STEP16.md)부터, 정한 것의 전체 목록은 [결정 기록](./DECISIONS.md), **팀원 Q&A 보충은 [QA](./QA.md)**에 있습니다.
 
 ## 🔄 수정사항 (처음 공유한 뒤 바뀐 것)
 
@@ -234,6 +234,14 @@ rows = [] if offset is None else [self.storage.read_at(cmd.table, offset)]
 ## 7. Phase 3 (은기, 15\~17단계)
 
 Phase 3 안에서는 16단계(lock) → 15단계(Thread Pool) → 17단계(오류 응답 JSON) 순서로 합니다. lock 없이 스레드부터 늘리면 그 사이 id가 겹칠 수 있어서, 잠금을 먼저 겁니다.
+
+| 단계 | 상태 | 작업 기록 | 결정 |
+| --- | --- | --- | --- |
+| Phase 3(16단계) lock | 완료. 스레드 100개 동시 INSERT → id 1\~100 빠짐없이 | [STEP16](./STEP16.md) | [D31\~D33](./DECISIONS.md#step16) |
+| Phase 3(15단계) Thread Pool | 진행 예정 | 작성 예정 | [D34\~D37 (제안)](./DECISIONS.md#step15) |
+| Phase 3(17단계) API 오류 응답 | 진행 예정 | 작성 예정 | [D38\~D39 (제안)](./DECISIONS.md#step17) |
+
+**Phase 1·2에게**: lock은 `execute` 위에 `@locked` 한 줄로 걸었습니다. `execute` 안을 고쳐도 충돌하지 않습니다. 엔진이 한 번에 하나씩만 실행하므로 B+ 트리는 동시성을 신경 쓰지 않아도 됩니다.
 
 ## 8. 지금 코드가 따르는 것 / 바뀔 가능성이 큰 것
 
