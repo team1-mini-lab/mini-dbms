@@ -144,6 +144,7 @@ mini-dbms/
 │   └── server.py          # 13단계  서버 
 ├── tests/
 ├── data/                  # schema.json, *.tbl
+├── examples/              # 예시 SQL 파일 (5단계)
 ├── scripts/               # 데이터 생성, 벤치마크 (10단계)
 ├── docs/
 │   ├── DESIGN.md          # 이 문서
