@@ -262,34 +262,39 @@ Phase 3 안에서는 16단계(lock) → 15단계(Thread Pool) → 17단계(오�
 
 **Phase 2에게**: 엔진이 한 번에 하나씩만 실행하므로(lock) B+ 트리는 동시성(여러 스레드가 동시에 부르는 상황)을 신경 쓰지 않아도 됩니다. PR #1(B+ 트리, GitHub에 올린 "합쳐 주세요" 요청 1번)을 eungi에 시험 삼아 합쳐 보니 충돌 없이 합쳐지고 확인 스크립트가 모두 통과했습니다.
 
-**Phase 1(hnjee)과 합칠 때** ⚠️ `engine.py`의 `execute` 머리(`def execute(...)` 줄)에서 충돌이 **납니다** (교차 검토에서 실제로 합쳐 봄). 충돌은 두 브랜치가 **같은 줄을 서로 다르게** 바꿔서 Git이 어느 쪽을 쓸지 몰라 사람에게 고르게 하는 것입니다. 이럴 때는 한쪽을 고르지 말고 두 쪽의 바뀐 점을 모두 담은 모양으로 직접 고쳐 써야 합니다. 원인은 `@locked`가 아니라 eungi의 `stop_on_error` 인자입니다. 한쪽만 고르면 서버 요청이 전부 실패하니, 아래 모양으로 풀어 주세요.
+**Phase 1(hnjee)과 합칠 때** ⚠️ (2026-11-17 밤, `origin/hnjee`의 `bdded8c step6 엣지케이스` 기준으로 다시 확인)
 
-```python
-    @locked                                                # 데코레이터는 def 바로 위
-    def execute(self, sql, stop_on_error=False):           # eungi 시그니처 유지 (server.py가 stop_on_error=True로 부름)
-        """CLI는 기본값(틀린 문장이 있어도 계속), 서버는 stop_on_error=True(첫 오류에서 멈춤)로 부른다."""
-        try:
-            statements = split_statements(tokenize(sql))   # hnjee 그대로
-        except TokenizeError as e:
-            return [{"type": "error", "message": str(e)}]
-        results = []
-        for tokens in statements:
-            text = sql[tokens[0].pos:tokens[-1].end]
-            try:
-                results.append(self._run(parse(text)))
-            except ValueError as e:                        # eungi 17단계(D47): SQL 오류만 담음
-                results.append({"type": "error", "message": str(e)})
-                if stop_on_error:
-                    break
-        return results
-```
+`hnjee`는 처음 계획과 달리 `engine.py`를 고치지 않고, `minidb/` 폴더에 lexer → parser → executor → storage를 **새로** 만들었습니다(엔진 자리는 비워 두고 데모용 입구만 둠). 그래서 걱정했던 "`def execute` 줄 충돌"은 생기지 않습니다. 대신 아래 두 종류를 맞춰야 합니다. 충돌은 두 브랜치가 **같은 파일을 서로 다르게** 바꿔서 Git이 어느 쪽을 쓸지 몰라 사람에게 고르게 하는 것입니다.
 
-- import는 두 쪽을 모두 남깁니다: `functools`, `threading`(eungi) + `tokenizer`(hnjee).
-- `server.py`, `server_guard.py`는 eungi 것을 그대로 씁니다.
-- 합친 뒤 확인 스크립트를 모두 돌려 봅니다. 위 모양으로 합친 사본에서 `check_all`, `check_concurrency`, `check_threadpool`, `check_errors`가 통과했습니다.
-- 합치면 끝에 `;`가 없는 API 요청이 400이 됩니다. 받아 줄지는 [결정 기록 "아직 안 정한 것"](./DECISIONS.md)에 올려 두었습니다.
+**① Git이 멈추는 곳: 두 브랜치가 모두 새로 만든 파일 5개** (`git merge-tree`로 확인)
 
-**현지 님에게 알릴 것 (D47)**: 엔진이 `ValueError`만 "SQL이 틀림"으로 받기로 바꿨습니다. 앞으로도 SQL 오류는 `ValueError`(또는 그 하위)로 내 주세요. 지금 파서·토크나이저는 이미 그렇게 되어 있습니다. SQL이 틀렸을 때 CLI는 지금처럼 계속하고(D9), 디스크 고장처럼 드문 경우에만 멈춥니다.
+| 파일 | eungi | hnjee | 어떻게 |
+| --- | --- | --- | --- |
+| `data/schema.json` | `{"users": [["id","INT"],["name","TEXT"],["age","INT"]]}` | `{"students": {"columns": [{"name":"id","type":"INT"}, ...grade]}}` | **모양과 테이블이 다름.** 하나로 정해야 함(아래 ②-5) |
+| `README.md` | 서버 시연·실행 방법 | pytest·`python -m minidb` 실행 방법 | 두 내용을 합쳐 씀 |
+| `docs/DESIGN.md`, `docs/REQUIREMENTS.md` | 팀 문서 | 팀 문서 (내용이 조금 다름) | 최신 팀 합의본 하나로 |
+| `.gitignore` | 짧음 | 긺 | 두 쪽 줄을 모두 남김 |
+
+**② Git은 조용히 합쳐 주지만 실행하면 깨지는 곳** (조립할 때 엔진에서 맞출 것)
+
+| # | 무엇이 다른가 | 그대로 두면 | 맞추는 법 (제안) |
+| --- | --- | --- | --- |
+| 1 | `minidb/errors.py`의 `MiniDBError`가 `Exception`을 이어받음. 서버·엔진은 **`ValueError`만** "SQL이 틀림"으로 봄 (D47) | SQL 오타 하나에도 서버가 **500**, CLI는 멈춤 | `class MiniDBError(ValueError)`로 한 줄 바꾸기. 또는 엔진에서 `except (ParseError, SchemaError, TypeMismatchError, ExecutionError)`로 받고 `StorageError`(디스크 고장)는 위로 올려 500 |
+| 2 | 결과가 `QueryResult(columns, rows)` 객체. 서버·테스트 페이지·확인 스크립트는 `{"type": "insert", "id": 1}`, `{"type": "select", "columns", "rows", "used_index"}`, `{"type": "error", "message"}` dict를 읽음 | 서버가 JSON으로 못 바꿔 500, 테스트 페이지 표가 안 그려짐 | 엔진 `execute`에서 `QueryResult` → dict로 바꿔 돌려주기 (접점 1 유지) |
+| 3 | `parse(sql)`이 **문장 전체를 한 번에** 읽어 목록으로 돌려줌. 하나라도 문법이 틀리면 아무것도 실행 안 됨 | D9(틀린 문장이 있어도 나머지는 실행), D30(첫 오류 전까지의 결과를 `results`로)과 다르게 동작 | 문법 오류는 "실행 전 전체 거절"로 받아들이고 문서(D9·D30)를 고치거나, 문장 단위로 나눠 파싱. 팀이 정할 일 |
+| 4 | `Executor.execute(stmt)`는 문장 **하나**를 받음. `stop_on_error`가 없음 | 서버의 "첫 오류에서 멈춤"이 안 됨 | 엔진 `execute(sql, stop_on_error=False)`가 문장 목록을 돌며 executor를 부르고, 오류에서 멈출지 정함. **`@locked`는 엔진 `execute` 위에 그대로** |
+| 5 | 스키마 모양·테이블 이름이 다름 (`users/age` vs `students/grade`) | `checks/`의 모든 확인 스크립트, `examples/step1·2.sql`, 테스트 페이지가 `users`를 씀 | 하나로 정하고 다른 쪽을 고치기. `minidb/catalog.py`가 읽는 모양을 바꾸는 게 고칠 곳이 적음 |
+| 6 | INSERT 때 `storage.append`가 돌려주는 **파일 위치를 executor가 버림**. SELECT는 항상 처음부터 읽음(주석: "9단계에서 인덱스가 이 자리에") | B+ 트리에 넣을 위치가 없어 `WHERE id = ?`도 인덱스를 안 씀. `used_index`가 사라져 14단계 비교가 안 됨 | `_execute_insert`가 위치도 돌려주게 하고, 엔진(또는 executor)이 `index.insert(id, 위치)`·`index.search(id)` 호출. 엔진을 켤 때 `scan`으로 B+ 트리 다시 만들기 |
+| 7 | 데이터 파일 형식이 다름: eungi는 한 줄에 JSON 배열, hnjee는 **탭으로 나눈** 줄 | 예전 `data/users.tbl`을 못 읽음 | 합친 뒤 `rm -f data/*.tbl`로 지우고 다시 넣기 |
+| 8 | hnjee는 `Row = tuple[int \| str, ...]`처럼 **파이썬 3.10 이상** 문법을 씀. HANDOFF 2절은 "3.8 이상" | 3.9 이하에서는 `import`하자마자 오류 | 문서를 "3.10 이상"으로 고치기 (팀원 컴퓨터 버전 확인) |
+| 9 | hnjee는 `pytest`(설치 필요)로 테스트. eungi `checks/`는 표준 라이브러리만 | 실행 방법이 두 가지 | 둘 다 두기. 서버 쪽은 `python3 checks/*.py` |
+| 10 | hnjee는 문장 끝에 `;`가 꼭 있어야 함 | `curl ... -d '{"sql": "SELECT * FROM users"}'`(끝 `;` 없음)가 400 | [결정 기록 "아직 안 정한 것"](./DECISIONS.md)에 올려 둠 |
+
+- `server.py`, `server_guard.py`, `index.py`(B+ 트리)는 eungi 것을 그대로 씁니다. 엔진 `execute`의 이름·인자(`stop_on_error`)·`@locked`만 지키면 서버 코드는 안 고쳐도 됩니다.
+- 다음 번호(`next_id`)는 hnjee executor가 가져도 됩니다. executor가 엔진 `execute` 안에서만 불리면 lock 안이라 겹치지 않습니다. 엔진 밖에서 executor나 storage를 직접 부르면 안 됩니다.
+- 조립한 뒤 `check_all`, `check_concurrency`, `check_threadpool`, `check_errors`, `check_guard`, `check_index index BPlusTree`, `check_bptree`를 모두 돌려 보면 서버·인덱스 쪽이 깨졌는지 바로 알 수 있습니다. 위 ②-5에서 테이블 이름을 바꾸면 확인 스크립트의 SQL도 같이 바꿔야 합니다.
+
+**현지 님에게 알릴 것 (D47)**: 엔진은 `ValueError`만 "SQL이 틀림"으로 받습니다. 위 ②-1처럼 `MiniDBError`가 `ValueError`를 이어받게 하는 것이 가장 간단합니다. SQL이 틀렸을 때 CLI는 계속하고(D9), 디스크 고장처럼 드문 경우에만 멈춥니다.
 
 ## 8. 지금 코드가 따르는 것 / 바뀔 가능성이 큰 것
 

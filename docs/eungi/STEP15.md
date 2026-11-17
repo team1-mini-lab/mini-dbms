@@ -1,6 +1,6 @@
 # Phase 3(15단계): Thread Pool
 
-[threadpool_simulator.html](https://github.com/user-attachments/files/34967023/threadpool_simulator.html)
+> 🎮 **직접 눌러 보기**: [동시 접속 Thread Pool · lock · 503 시뮬레이터 (AI Studio)](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e) · 같은 내용의 파일은 [`docs/study/threadpool_simulator.html`](../study/threadpool_simulator.html) (내려받아 브라우저로 열기). 시뮬레이터는 설명용 그림이라 시간은 실제보다 느리게 보여 줍니다.
 
 > **한 문장으로**: Thread Pool은 서버를 켤 때 일하는 스레드를 정해진 수만큼 **미리** 만들어 두고, 들어온 요청을 큐에 줄 세워 두면 쉬고 있는 스레드가 하나씩 꺼내 처리하는 방식입니다.
 >

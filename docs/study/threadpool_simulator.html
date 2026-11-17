@@ -277,6 +277,8 @@
       <div class="logs">
         <div class="small" style="color:#94a3b8; margin-bottom:6px;">서버 터미널 실시간 로그 (Handler.log_message)</div>
         <div id="log-list"></div>
+        <div class="small" style="color:#fb7185; margin:10px 0 6px;">503으로 거절된 요청 (서버가 읽지도 처리하지도 않음 · 최근 8개)</div>
+        <div id="rejected-list" class="small" style="color:#fb7185;"></div>
       </div>
     </div>
   </div>
@@ -290,6 +292,7 @@
     let nextId = 1;
     let reqCounter = 1;
     let stats = { ok200: 0, t408: 0, b503: 0 };
+    let rejected = [];   // 503으로 거절된 요청 (처리되지 않음). 로그와 따로 남김
     let logs = [{ worker: "server", detail: "PooledHTTPServer 준비 완료 (스레드 4개, 큐 16칸, 감시 5초)", kind: "ok" }];
 
     function pushLog(worker, detail, kind) {
@@ -297,17 +300,34 @@
       if (logs.length > 7) logs.pop();
     }
 
+    // 실제 서버처럼, 놀던 worker는 큐에 들어온 요청을 바로 꺼내 간다 (jobs.get이 즉시 깨어남)
+    function startJob(w) {
+      w.req = queue.shift();
+      w.elapsedMs = 0;
+      w.phase = w.req.kind === "slow" ? "slow_wait" : "reading";
+    }
+
+    function dispatchIdle() {
+      for (const w of workers) {
+        if (w.phase === "idle" && queue.length > 0) startJob(w);
+      }
+    }
+
     function sendBatch(items) {
       for (const item of items) {
+        dispatchIdle();
         const id = reqCounter++;
         const label = "요청 #" + id + " (" + item.name + ")";
         if (queue.length >= MAX_QUEUE) {
           stats.b503++;
-          pushLog("accept", label + " · 큐 16칸 가득 참 → 즉시 503 busy (linger_close)", "err");
+          rejected.unshift(label);
+          if (rejected.length > 8) rejected.pop();
+          pushLog("accept", label + " · worker 4개와 큐 16칸이 모두 참 → 즉시 503 busy (처리되지 않음)", "err");
         } else {
           queue.push({ id, label, kind: item.kind });
         }
       }
+      dispatchIdle();
       render();
     }
 
@@ -330,6 +350,7 @@
       nextId = 1;
       reqCounter = 1;
       stats = { ok200: 0, t408: 0, b503: 0 };
+      rejected = [];
       logs = [{ worker: "server", detail: "초기화 완료 — 요청 버튼을 눌러 동작을 체감해 보세요", kind: "ok" }];
       render();
     }
@@ -337,11 +358,7 @@
     setInterval(() => {
       for (const w of workers) {
         if (w.phase === "idle") {
-          if (queue.length > 0) {
-            w.req = queue.shift();
-            w.elapsedMs = 0;
-            w.phase = w.req.kind === "slow" ? "slow_wait" : "reading";
-          }
+          if (queue.length > 0) startJob(w);
           continue;
         }
         w.elapsedMs += 100;
@@ -421,6 +438,9 @@
         ? '<div class="mono" style="color:#34d399;font-weight:700;">' + lockOwner + ' 점유 중</div><div style="font-size:11px;color:#cbd5e1;margin-top:4px;">한 번에 한 문장만 실행해 ID 중복 방지</div>'
         : '<div style="color:#94a3b8;">자물쇠 열림 (다음 요청 대기)</div>';
 
+      document.getElementById("rejected-list").innerHTML = rejected.length
+        ? rejected.map(r => '<div>✕ ' + r + ' → 503 busy</div>').join("")
+        : '<div style="color:#64748b;">(아직 없음)</div>';
       document.getElementById("log-list").innerHTML = logs.map(l => {
         const cls = l.kind === "err" ? "log-err" : l.kind === "warn" ? "log-warn" : "log-ok";
         return '<div><span class="' + cls + '">[' + l.worker + ']</span> ' + l.detail + '</div>';
