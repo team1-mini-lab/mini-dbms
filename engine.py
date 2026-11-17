@@ -3,7 +3,7 @@ import json
 import os
 import threading
 
-from index import DictIndex
+from index import BPlusTree
 from parser import Insert, parse
 from storage import Storage
 
@@ -33,7 +33,7 @@ class Engine:
         # 목차와 다음 번호는 메모리에만 있어서 끄면 사라진다. 그래서 엔진을 만들 때마다(CLI는 실행할 때마다,
         # 서버는 켤 때 한 번) 파일을 처음부터 읽어 다시 만든다
         for table in self.schema:
-            self.index[table] = DictIndex()
+            self.index[table] = BPlusTree()
             last = 0
             for offset, row in self.storage.scan(table):
                 self.index[table].insert(row[0], offset)
