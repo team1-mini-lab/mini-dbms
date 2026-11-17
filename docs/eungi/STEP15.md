@@ -1,6 +1,6 @@
 # Phase 3(15단계): Thread Pool
 
-> 🎮 **직접 눌러 보기**: [동시 접속 Thread Pool · lock · 503 시뮬레이터 (AI Studio)](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e) · 같은 내용의 파일은 [`docs/study/threadpool_simulator.html`](../study/threadpool_simulator.html) (내려받아 브라우저로 열기). 시뮬레이터는 설명용 그림이라 시간은 실제보다 느리게 보여 줍니다.
+> 🎮 **시뮬레이터로 눌러 보기**: [Thread Pool · lock · 503 시뮬레이터](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e)에서 요청을 보내 보면, 스레드 4개가 큐에서 요청을 꺼내 가고, 엔진 앞(lock)에서 한 명씩 줄을 서고, 스레드와 큐가 모두 차면 503이 나는 모습을 볼 수 있습니다. 느린 손님을 보내면 그 스레드만 붙잡히고 나머지는 계속 일하는 것도 보입니다. 링크가 열리지 않으면 [`docs/study/threadpool_simulator.html`](../study/threadpool_simulator.html)을 내려받아 브라우저로 여세요. 저장소 파일이 최신판입니다(503 표시 수정). 설명용이라 시간은 실제보다 느리게 흐릅니다.
 
 > **한 문장으로**: Thread Pool은 서버를 켤 때 일하는 스레드를 정해진 수만큼 **미리** 만들어 두고, 들어온 요청을 큐에 줄 세워 두면 쉬고 있는 스레드가 하나씩 꺼내 처리하는 방식입니다.
 >

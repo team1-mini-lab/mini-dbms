@@ -32,8 +32,9 @@ Thread Pool로 여러 요청을 동시에 처리                    (Phase 3, 15
 | 2 | [전체 그림](docs/study/OVERVIEW.md) | 우리가 만들 DBMS 안에서 SQL 한 줄이 파일에 저장되고 다시 꺼내지기까지를 예시로 보고 싶을 때 |
 | 3 | [설계](docs/DESIGN.md) | 단계별로 무엇을 만들고, 언제 완료인지, 어떤 방식을 제안했는지 볼 때 |
 | 4 | [학습 노트](docs/study/DBMS_study.md) | 구현하면서 "왜 이렇게 만드나"를 설명할 수 있는지 스스로 확인하고 싶을 때 |
-| 5 | [지도 만들기 인수인계](docs/eungi/HANDOFF.md) | 0\~3단계 코드가 어디까지 됐고, 어떻게 돌려 보고, 다음 담당자가 어디를 바꾸면 되는지 볼 때 |
-| 6 | [과제 요구사항](docs/REQUIREMENTS.md) | 과제가 무엇을 요구하는지 원문으로 확인하고 싶을 때 |
+| 5 | [인수인계](docs/eungi/HANDOFF.md) | 0\~3단계와 Phase 3 코드가 어디까지 됐고, 어떻게 돌려 보고, 다음 담당자가 어디를 바꾸면 되는지 볼 때. Phase 1(현지 브랜치)과 합칠 때 맞출 곳은 7절 |
+| 6 | [결정 기록](docs/eungi/DECISIONS.md) | "왜 이렇게 만들었나"를 결정 번호로 볼 때. 지도 만들기(D1\~D30), Phase 2 B+ 트리(S1\~S7), Phase 3(D31\~D48) |
+| 7 | [과제 요구사항](docs/REQUIREMENTS.md) | 과제가 무엇을 요구하는지 원문으로 확인하고 싶을 때 |
 
 과제 원문은 요구사항을 Phase 1·2·3으로 나눕니다.
 각 Phase는 DBMS가 처음 풀려고 했던 문제 하나씩과 짝이 됩니다.
@@ -96,7 +97,7 @@ python3 server.py --workers 1 --queue 1
 (sleep 3 | nc localhost 8000 &) && (sleep 3 | nc localhost 8000 &) && sleep 0.3 && curl -s -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'
 ```
 ---
-🎮 [동시 접속 Thread Pool · lock · 503 시뮬레이터 (AI Studio)](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e) · 같은 내용의 파일은 [`docs/study/threadpool_simulator.html`](docs/study/threadpool_simulator.html) (내려받아 브라우저로 열기)
+🎮 **시뮬레이터로 눌러 보기**: [Thread Pool · lock · 503 시뮬레이터](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e)에서 요청을 보내 보면, 스레드 4개가 큐에서 요청을 꺼내 가고, 엔진 앞(lock)에서 한 명씩 줄을 서고, 스레드와 큐가 모두 차면 503이 나는 모습을 볼 수 있습니다. 느린 손님을 보내면 그 스레드만 붙잡히고 나머지는 계속 일하는 것도 보입니다. 링크가 열리지 않으면 [`docs/study/threadpool_simulator.html`](docs/study/threadpool_simulator.html)을 내려받아 브라우저로 여세요. 저장소 파일이 최신판입니다(503 표시 수정). 설명용이라 시간은 실제보다 느리게 흐릅니다.
 
 ### 왜 이벤트 루프 대신 스레드 여러 개(Thread Pool)를 썼나요?
 
