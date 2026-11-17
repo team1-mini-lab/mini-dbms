@@ -41,23 +41,6 @@ SELECT * FROM users WHERE id = 1;                   -- 꺼내기: 파일에서 i
 | 18\~19. 마무리 | 테스트 보완(기능, 동시 요청, 엣지 케이스), 문서 정리 |
 | 20\~24. 시간이 남으면 | 범위 검색(`WHERE id > 10`), 읽기/쓰기 lock(읽기끼리는 동시에), `EXPLAIN`(인덱스를 썼는지 보여 줌), 미니 레디스 캐시(같은 조회 결과를 저장해 두기), 인덱스 저장(켤 때 목차를 다시 만들지 않기) |
 
-## 동작 원리 시뮬레이터 (Thread Pool · 큐 16칸 · 408/503)
-
-> 🎮 **[Thread Pool · 큐(16) · 감시(408) · 503 시뮬레이터 직접 눌러보기](https://team1-mini-lab.github.io/mini-dbms/threadpool_simulator.html)**
-
-```mermaid
-flowchart LR
-    C[동시 요청] --> A["받는 스레드 (serve_forever)"]
-    A -->|"큐(16칸) 여유"| Q["대기 큐 Queue(16)"]
-    A -->|"큐 포화 (queue.Full)"| R503["즉시 503 busy 거절"]
-    Q --> W["일꾼 스레드 worker-1~4"]
-    W -->|"5초 초과 (server_guard)"| R408["SHUT_RD → 408 timeout"]
-    W -->|"읽기 완료"| L["@locked 문 (한 번에 1스레드)"]
-    L --> DB["engine.execute → 200 OK"]
-```
-
----
-
 ## 실행 및 시연 방법 (CLI / API 웹 페이지 / 동시성 테스트)
 
 ### 1. CLI로 SQL 파일 한 번에 실행
