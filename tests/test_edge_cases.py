@@ -1,4 +1,4 @@
-"""Phase 1 끝에서 끝까지의 엣지 케이스 (docs/steps/step06-edge-cases.md).
+"""Phase 1 끝에서 끝까지의 엣지 케이스 (docs/hnjee/step06-edge-cases.md).
 
 핵심 원칙: 사용자 입력이나 데이터 상태 때문에 MiniDBError 가 아닌 예외가 CLI 밖으로
 새어 나오면 안 된다. 실제 서브프로세스로 실행해 트레이스백이 없는지 본다.
