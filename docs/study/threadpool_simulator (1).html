@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mini-dbms Thread Pool · 큐(16) · 408/503 시뮬레이터</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .container { max-width: 1220px; margin: 0 auto; }
+    .header { margin-bottom: 18px; }
+    .kicker { font-size: 12px; font-weight: 700; color: #0369a1; margin: 0 0 4px; }
+    h1 { font-size: 24px; font-weight: 800; margin: 0 0 6px; letter-spacing: -0.02em; }
+    .sub { font-size: 13px; color: #475569; margin: 0; line-height: 1.55; }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .notice {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #78350f;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #0f172a;
+      border-radius: 8px;
+      padding: 8px 13px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #f8fafc; }
+    button.sky { background: #0284c7; border-color: #0284c7; color: #fff; }
+    button.sky:hover { background: #0369a1; }
+    button.dark { background: #0f172a; border-color: #0f172a; color: #fff; }
+    button.dark:hover { background: #1e293b; }
+    button.rose { background: #fff1f2; border-color: #fda4af; color: #9f1239; }
+    button.rose:hover { background: #ffe4e6; }
+    button.amber { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+    button.amber:hover { background: #fef3c7; }
+    .stats {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .stat-200 { color: #047857; }
+    .stat-408 { color: #b45309; }
+    .stat-503 { color: #be123c; }
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+    .col-accept { grid-column: span 2; }
+    .col-queue { grid-column: span 4; }
+    .col-workers { grid-column: span 4; display: flex; flex-direction: column; gap: 10px; }
+    .col-lock { grid-column: span 2; }
+    @media (max-width: 1024px) {
+      .col-accept, .col-queue, .col-workers, .col-lock { grid-column: span 12; }
+    }
+    .panel {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .panel-title { font-size: 12px; font-weight: 700; color: #0f172a; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .small { font-size: 11px; color: #64748b; line-height: 1.5; }
+    .full-box {
+      margin-top: 12px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      color: #9f1239;
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
+    }
+    .queue-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px;
+      margin-top: 10px;
+    }
+    .slot {
+      height: 46px;
+      border-radius: 8px;
+      border: 1px dashed #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: ui-monospace, monospace;
+      font-size: 10px;
+      color: #cbd5e1;
+    }
+    .slot.insert { background: #f0f9ff; border: 1px solid #7dd3fc; color: #0c4a6e; font-weight: 700; }
+    .slot.select { background: #eef2ff; border: 1px solid #a5b4fc; color: #312e81; font-weight: 700; }
+    .slot.slow { background: #fffbeb; border: 1px solid #fcd34d; color: #78350f; font-weight: 700; }
+    .watcher-strip {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #334155;
+      font-weight: 600;
+    }
+    .worker {
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      padding: 11px 13px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .worker.reading { background: #f0f9ff; border-color: #7dd3fc; }
+    .worker.slow_wait { background: #fffbeb; border-color: #fcd34d; color: #78350f; }
+    .worker.waiting_lock { background: #f1f5f9; border-color: #94a3b8; }
+    .worker.executing { background: #ecfdf5; border-color: #34d399; color: #064e3b; }
+    .worker.responding { background: #f0f9ff; border-color: #bae6fd; }
+    .w-top { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; }
+    .w-status { margin-top: 5px; font-size: 11px; color: #475569; }
+    .bar-bg { margin-top: 7px; height: 5px; border-radius: 99px; background: #fde68a; overflow: hidden; }
+    .bar-fill { height: 100%; background: #d97706; width: 0%; transition: width 0.1s; }
+    .lock-panel {
+      background: #0f172a;
+      color: #f8fafc;
+      border-radius: 12px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .lock-box {
+      margin-top: 12px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 12px;
+    }
+    .logs {
+      background: #020617;
+      color: #e2e8f0;
+      border-radius: 12px;
+      padding: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .log-ok { color: #34d399; }
+    .log-warn { color: #fbbf24; }
+    .log-err { color: #fb7185; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <p class="kicker">mini-dbms · Phase 3 (15~17단계)</p>
+      <h1>동시 접속 Thread Pool · 큐(16) · 감시(408) · 503 시뮬레이터</h1>
+      <p class="sub">
+        <code>server.py</code>(받는 스레드 + Queue(16) + 워커 4개), <code>server_guard.py</code>(감시 스레드 5초 408 차단), <code>engine.py</code>(<code>@locked</code>)의 실제 동작 흐름입니다.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="notice">
+        <strong>왜 ‘느린 손님(408)’을 감시하고 끊어야 하나요?</strong> 우리 서버의 일꾼 스레드는 <strong>딱 4명</strong>입니다.
+        데이터를 찔끔찔끔 보내는 손님 4명이 일꾼을 붙잡고 있으면 멀쩡한 다른 손님까지 멈추므로,
+        <code>server_guard</code> 감시 스레드가 0.05초마다 확인해 <strong>5초가 지나면 <code>SHUT_RD</code>로 끊고(<code>408</code>) 일꾼을 해방</strong>시킵니다.
+      </div>
+
+      <div class="toolbar">
+        <div class="btn-group">
+          <button class="sky" onclick="sendBatch([{kind:'insert', name:'INSERT'}])">+ INSERT 1개</button>
+          <button class="dark" onclick="sendBatch([{kind:'select', name:'SELECT id'}])">SELECT 1개</button>
+          <button onclick="sendMany(8)">동시 8개 보내기</button>
+          <button class="rose" onclick="sendBurst(24)">24개 폭주 (503 체험)</button>
+          <button class="amber" onclick="sendBatch([{kind:'slow', name:'느린 손님'}])">느린 손님 1명 (5초 뒤 408)</button>
+        </div>
+        <div class="stats">
+          <span class="stat-200" id="s200">200: 0</span>
+          <span class="stat-408" id="s408">408: 0</span>
+          <span class="stat-503" id="s503">503: 0</span>
+          <button onclick="resetAll()">초기화</button>
+        </div>
+      </div>
+
+      <div class="pipeline">
+        <div class="panel col-accept">
+          <div>
+            <div class="panel-title">받는 스레드</div>
+            <div class="mono small">serve_forever()</div>
+            <p class="small" style="margin-top:10px;">
+              연결을 받자마자 기다리지 않고 <code>put_nowait()</code>로 큐에 넣기만 한 뒤 바로 다음 연결을 받습니다.
+            </p>
+          </div>
+          <div class="full-box">
+            큐 16칸 초과 시<br />
+            queue.Full → 503 busy
+          </div>
+        </div>
+
+        <div class="panel col-queue">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div class="panel-title">대기 큐 (queue.Queue, 최대 16칸)</div>
+                <div class="small">먼저 들어온 요청부터 왼쪽에서 worker로 이동</div>
+              </div>
+              <div class="mono" style="font-weight:700; font-size:13px;" id="q-count">0 / 16</div>
+            </div>
+            <div class="queue-grid" id="q-grid"></div>
+          </div>
+          <div class="watcher-strip">
+            <span>감시 스레드 (watcher · 0.05초 주기)</span>
+            <span class="mono" id="watch-count">감시 중 0건</span>
+          </div>
+        </div>
+
+        <div class="col-workers" id="workers"></div>
+
+        <div class="lock-panel col-lock">
+          <div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; border-bottom:1px solid #334155; padding-bottom:8px;">
+              <span>Engine Lock</span>
+              <span class="mono" style="color:#34d399;" id="next-id">next_id=1</span>
+            </div>
+            <div class="lock-box" id="lock-state">자물쇠 열림 (대기 중)</div>
+          </div>
+          <div class="small" style="color:#94a3b8; border-top:1px solid #1e293b; padding-top:10px; margin-top:12px;">
+            느린 손님이 worker 1~3명을 잡아도 남은 worker는 정상 요청을 바로 처리합니다.
+          </div>
+        </div>
+      </div>
+
+      <div class="logs">
+        <div class="small" style="color:#94a3b8; margin-bottom:6px;">서버 터미널 실시간 로그 (Handler.log_message)</div>
+        <div id="log-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const MAX_QUEUE = 16;
+    const WATCHER_TIMEOUT_MS = 5000;
+    let queue = [];
+    let workers = [1, 2, 3, 4].map(id => ({ id, name: "worker-" + id, phase: "idle", req: null, elapsedMs: 0 }));
+    let lockOwner = null;
+    let nextId = 1;
+    let reqCounter = 1;
+    let stats = { ok200: 0, t408: 0, b503: 0 };
+    let logs = [{ worker: "server", detail: "PooledHTTPServer 준비 완료 (스레드 4개, 큐 16칸, 감시 5초)", kind: "ok" }];
+
+    function pushLog(worker, detail, kind) {
+      logs.unshift({ worker, detail, kind });
+      if (logs.length > 7) logs.pop();
+    }
+
+    function sendBatch(items) {
+      for (const item of items) {
+        const id = reqCounter++;
+        const label = "요청 #" + id + " (" + item.name + ")";
+        if (queue.length >= MAX_QUEUE) {
+          stats.b503++;
+          pushLog("accept", label + " · 큐 16칸 가득 참 → 즉시 503 busy (linger_close)", "err");
+        } else {
+          queue.push({ id, label, kind: item.kind });
+        }
+      }
+      render();
+    }
+
+    function sendMany(n) {
+      const items = [];
+      for (let i = 0; i < n; i++) items.push({ kind: i % 2 === 0 ? "insert" : "select", name: i % 2 === 0 ? "INSERT" : "SELECT" });
+      sendBatch(items);
+    }
+
+    function sendBurst(n) {
+      const items = [];
+      for (let i = 0; i < n; i++) items.push({ kind: "insert", name: "폭주 INSERT" });
+      sendBatch(items);
+    }
+
+    function resetAll() {
+      queue = [];
+      workers = [1, 2, 3, 4].map(id => ({ id, name: "worker-" + id, phase: "idle", req: null, elapsedMs: 0 }));
+      lockOwner = null;
+      nextId = 1;
+      reqCounter = 1;
+      stats = { ok200: 0, t408: 0, b503: 0 };
+      logs = [{ worker: "server", detail: "초기화 완료 — 요청 버튼을 눌러 동작을 체감해 보세요", kind: "ok" }];
+      render();
+    }
+
+    setInterval(() => {
+      for (const w of workers) {
+        if (w.phase === "idle") {
+          if (queue.length > 0) {
+            w.req = queue.shift();
+            w.elapsedMs = 0;
+            w.phase = w.req.kind === "slow" ? "slow_wait" : "reading";
+          }
+          continue;
+        }
+        w.elapsedMs += 100;
+        if (w.phase === "slow_wait") {
+          if (w.elapsedMs >= WATCHER_TIMEOUT_MS) {
+            stats.t408++;
+            pushLog(w.name, w.req.label + " · 감시 스레드가 SHUT_RD 차단 → 408 timeout (lock 안 거침)", "warn");
+            w.phase = "idle"; w.req = null; w.elapsedMs = 0;
+          }
+        } else if (w.phase === "reading") {
+          if (w.elapsedMs >= 500) {
+            if (lockOwner === null) { lockOwner = w.name; w.phase = "executing"; w.elapsedMs = 0; }
+            else { w.phase = "waiting_lock"; w.elapsedMs = 0; }
+          }
+        } else if (w.phase === "waiting_lock") {
+          if (lockOwner === null) { lockOwner = w.name; w.phase = "executing"; w.elapsedMs = 0; }
+        } else if (w.phase === "executing") {
+          if (w.elapsedMs >= 600) {
+            lockOwner = null;
+            if (w.req.kind === "insert") {
+              const assigned = nextId++;
+              pushLog(w.name, w.req.label + " → INSERT 완료 (id=" + assigned + ", X-Worker: " + w.name + ")", "ok");
+            } else {
+              pushLog(w.name, w.req.label + " → SELECT 완료 (used_index=true, X-Worker: " + w.name + ")", "ok");
+            }
+            stats.ok200++;
+            w.phase = "responding"; w.elapsedMs = 0;
+          }
+        } else if (w.phase === "responding") {
+          if (w.elapsedMs >= 300) {
+            w.phase = "idle"; w.req = null; w.elapsedMs = 0;
+          }
+        }
+      }
+      render();
+    }, 100);
+
+    function render() {
+      document.getElementById("s200").textContent = "200: " + stats.ok200;
+      document.getElementById("s408").textContent = "408: " + stats.t408;
+      document.getElementById("s503").textContent = "503: " + stats.b503;
+      document.getElementById("q-count").textContent = queue.length + " / " + MAX_QUEUE;
+      document.getElementById("next-id").textContent = "next_id=" + nextId;
+
+      let qHtml = "";
+      for (let i = 0; i < MAX_QUEUE; i++) {
+        const item = queue[i];
+        if (item) {
+          const text = item.kind === "slow" ? "느림" : item.kind.toUpperCase();
+          qHtml += '<div class="slot ' + item.kind + '"><span>#' + item.id + '</span><span>' + text + '</span></div>';
+        } else {
+          qHtml += '<div class="slot">' + (i + 1) + '</div>';
+        }
+      }
+      document.getElementById("q-grid").innerHTML = qHtml;
+
+      const watched = workers.filter(w => w.phase === "reading" || w.phase === "slow_wait").length;
+      document.getElementById("watch-count").textContent = "감시 중 " + watched + "건";
+
+      document.getElementById("workers").innerHTML = workers.map(w => {
+        let badge = "대기", label = "비어서 큐를 기다림 (jobs.get 대기)", bar = "";
+        if (w.phase === "reading") { badge = "처리 중"; label = "요청 읽기 & JSON 해석 중 (Lock 밖 병렬)"; }
+        else if (w.phase === "slow_wait") {
+          badge = "감시 중";
+          const left = Math.max(0, (WATCHER_TIMEOUT_MS - w.elapsedMs) / 1000).toFixed(1);
+          label = "느린 본문 수신 대기 중 · " + left + "초 후 408 차단";
+          const pct = Math.min(100, (w.elapsedMs / WATCHER_TIMEOUT_MS) * 100);
+          bar = '<div class="bar-bg"><div class="bar-fill" style="width:' + pct + '%"></div></div>';
+        } else if (w.phase === "waiting_lock") { badge = "대기"; label = "@locked 문 앞에서 줄 서는 중"; }
+        else if (w.phase === "executing") { badge = "실행 🔒"; label = "Engine.execute() 실행 중 🔒"; }
+        else if (w.phase === "responding") { badge = "처리 중"; label = "JSON 응답 전송 중 (X-Worker 헤더)"; }
+        const reqText = w.req ? ' <span class="mono" style="color:#0369a1;">' + w.req.label + '</span>' : "";
+        return '<div class="worker ' + w.phase + '"><div class="w-top"><span>' + w.name + reqText + '</span><span>' + badge + '</span></div><div class="w-status">' + label + '</div>' + bar + '</div>';
+      }).join("");
+
+      document.getElementById("lock-state").innerHTML = lockOwner
+        ? '<div class="mono" style="color:#34d399;font-weight:700;">' + lockOwner + ' 점유 중</div><div style="font-size:11px;color:#cbd5e1;margin-top:4px;">한 번에 한 문장만 실행해 ID 중복 방지</div>'
+        : '<div style="color:#94a3b8;">자물쇠 열림 (다음 요청 대기)</div>';
+
+      document.getElementById("log-list").innerHTML = logs.map(l => {
+        const cls = l.kind === "err" ? "log-err" : l.kind === "warn" ? "log-warn" : "log-ok";
+        return '<div><span class="' + cls + '">[' + l.worker + ']</span> ' + l.detail + '</div>';
+      }).join("");
+    }
+
+    render();
+  </script>
+</body>
+</html>
