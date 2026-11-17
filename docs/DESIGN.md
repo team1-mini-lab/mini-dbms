@@ -133,6 +133,7 @@ mini-dbms/
 │   ├── errors.py          # MiniDBError 계열 (0단계)
 │   ├── catalog.py         # schema.json 읽기와 검증 (0단계)
 │   ├── lexer.py           # 1단계 토크나이저
+│   ├── ast.py             # 2단계 AST (Insert, Select, Condition)
 │   ├── parser.py          # 2단계 파서
 │   ├── storage.py         # 3단계 저장소
 │   ├── executor.py        # 4단계 실행기
