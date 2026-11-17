@@ -10,8 +10,8 @@ class DictIndex:
 
     def search(self, key):
         return self._d.get(key)
-#   range_search(start, end) : start <= id <= end 인 (id, 파일 위치) 목록, id 오름차순
-#
+
+
 # 규칙 세 가지 ("넘치면 나누고, 가운데를 올리고, 리프에는 남긴다"):
 #   1. 노드의 키가 max_keys개를 넘으면 그 노드를 둘로 나눈다.
 #   2. 리프를 나눌 때: 오른쪽 리프의 첫 키를 부모로 "복사"해 올린다. (리프에도 남음)
