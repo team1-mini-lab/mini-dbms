@@ -11,23 +11,27 @@ TYPES = {"INT": int, "TEXT": str}
 
 
 def locked(method):
-    """Phase 3(16단계): 감싼 함수를 엔진의 lock 안에서 실행한다. 한 번에 한 스레드만 들어간다."""
-    @functools.wraps(method)
-    def wrapper(self, *args, **kwargs):
-        with self._lock:
-            return method(self, *args, **kwargs)
+    """Phase 3(16단계): 함수를 lock 안에서 실행한다.
+
+    함수 위에 @locked를 붙이면, 그 아랫줄 함수가 method로 들어온다 (지금은 execute).
+    """
+    @functools.wraps(method)                        # wrapper에 원래 함수 이름(execute)을 붙여 줌
+    def wrapper(self, *args, **kwargs):             # 받은 값은 그대로 method에 넘김
+        with self._lock:                            # 잠금 (이미 잠겨 있으면 풀릴 때까지 기다림)
+            return method(self, *args, **kwargs)    # 우리가 쓴 execute를 실행. 끝나면 자동으로 풂
     return wrapper
 
 
 class Engine:
     def __init__(self, data_dir):
-        self._lock = threading.Lock()                     # Phase 3(16단계): execute를 한 번에 하나씩
+        self._lock = threading.Lock()   # Phase 3(16단계): lock을 만든다. execute를 부를 때마다 이 lock을 잠근다
         self.storage = Storage(data_dir)
         with open(os.path.join(data_dir, "schema.json"), encoding="utf-8") as f:
             self.schema = json.load(f)
         self.index = {}
         self.next_id = {}
-        # CLI는 실행할 때마다 새로 켜지므로, 켤 때 파일을 읽어 목차와 다음 번호를 다시 만든다
+        # 목차와 다음 번호는 메모리에만 있어서 끄면 사라진다. 그래서 엔진을 만들 때마다(CLI는 실행할 때마다,
+        # 서버는 켤 때 한 번) 파일을 처음부터 읽어 다시 만든다
         for table in self.schema:
             self.index[table] = DictIndex()
             last = 0
