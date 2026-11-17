@@ -1,5 +1,7 @@
 # Phase 3(15단계): Thread Pool
 
+[threadpool_simulator.html](https://github.com/user-attachments/files/34967023/threadpool_simulator.html)
+
 > **한 문장으로**: Thread Pool은 서버를 켤 때 일하는 스레드를 정해진 수만큼 **미리** 만들어 두고, 들어온 요청을 큐에 줄 세워 두면 쉬고 있는 스레드가 하나씩 꺼내 처리하는 방식입니다.
 >
 > | | |
