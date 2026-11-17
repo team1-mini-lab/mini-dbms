@@ -316,6 +316,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, status, obj):
         out = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        if self.request_version == "HTTP/0.9":
+            # Python 3.12 이하는 요청 줄이 깨지면 버전을 HTTP/0.9로 둔 채 오류를 보냄 → 상태 줄·머리 없이 본문만 나감
+            self.request_version = "HTTP/1.0"
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(out)))
