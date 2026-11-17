@@ -130,7 +130,8 @@ SELECT name FROM students WHERE id = 10;
 mini-dbms/
 ├── minidb/                # 엔진 패키지
 │   ├── __main__.py        # python -m minidb 진입점
-│   ├── errors.py          # MiniDBError 계열
+│   ├── errors.py          # MiniDBError 계열 (0단계)
+│   ├── catalog.py         # schema.json 읽기와 검증 (0단계)
 │   ├── lexer.py           # 1단계 토크나이저
 │   ├── parser.py          # 2단계 파서
 │   ├── storage.py         # 3단계 저장소
@@ -157,7 +158,7 @@ mini-dbms/
 
 | 단계 | 이름 | 산출물 | 이 단계에서 이해할 것 |
 | --- | --- | --- | --- |
-| 0 | 골격 | 패키지 구조, `schema.json`, 오류 타입, pytest 설정 | 카탈로그가 왜 필요한가, 세 층의 경계 |
+| 0 | 골격 | 패키지 구조, `schema.json`과 `catalog.py`, 오류 타입, pytest 설정 | 카탈로그가 왜 필요한가, 세 층의 경계 |
 | 1 | 토크나이저 | `lexer.py` | 문자열을 토큰으로 자르는 이유, 따옴표와 공백과 주석 처리 |
 | 2 | 파서 | `parser.py`, AST 정의 | 토큰 열을 구조화된 객체로 바꾸는 과정, 문법 오류 보고 |
 | 3 | 저장소 | `storage.py` | 행 직렬화와 이스케이프, 오프셋 반환, 전체 순회와 위치 읽기 |
