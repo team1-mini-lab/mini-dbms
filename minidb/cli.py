@@ -71,10 +71,14 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
     schema_path = Path(args.schema) if args.schema else data_dir / "schema.json"
 
     # 1. 파일 읽기
+    # utf-8-sig: 윈도우 메모장 등이 붙이는 BOM 이 있으면 떼고, 없으면 일반 UTF-8 과 같다.
     try:
-        sql = Path(args.sql_file).read_text(encoding="utf-8")
+        sql = Path(args.sql_file).read_text(encoding="utf-8-sig")
     except OSError as e:
         print(f"오류: 파일을 열 수 없습니다: {args.sql_file} ({e.strerror})", file=stderr)
+        return EXIT_INPUT
+    except UnicodeDecodeError:
+        print(f"오류: UTF-8 로 읽을 수 없는 파일입니다: {args.sql_file}", file=stderr)
         return EXIT_INPUT
 
     # 2. 전체 파싱. 문법 오류가 하나라도 있으면 아무것도 실행하지 않는다 (2단계 결정).

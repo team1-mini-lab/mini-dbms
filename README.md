@@ -32,4 +32,6 @@ SELECT name FROM students WHERE name = 'Kim';
 
 ## 한계 (의도된 범위 밖)
 
+같은 데이터 폴더에 대해 한 번에 한 프로세스만 실행한다고 가정한다. CLI 두 개를 동시에 실행하면 같은 id 가 부여될 수 있다. 이 문제는 Phase 3 서버(엔진을 가진 프로세스 하나)에서 다룬다.
+
 `CREATE TABLE`, `UPDATE`, `DELETE`, NULL, `AND`/`OR`, `ORDER BY`, `LIMIT`, JOIN, 트랜잭션, WAL. 쓰다 만 마지막 행은 다음 실행 때 잘라 낸다. 표 출력에서 한글 등 전각 문자의 폭은 맞추지 않는다.

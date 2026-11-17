@@ -79,7 +79,12 @@ def encode_row(table: Table, row: Row) -> bytes:
 
 def decode_row(table: Table, line: bytes) -> Row:
     """줄바꿈을 뗀 한 줄의 바이트를 행 튜플로 되돌린다."""
-    parts = line.decode("utf-8").split("\t")
+    try:
+        text = line.decode("utf-8")
+    except UnicodeDecodeError:
+        # 외부에서 편집되어 UTF-8 이 아닌 바이트가 들어온 경우. 바깥 예외를 우리 예외로 번역한다.
+        raise StorageError(f"테이블 '{table.name}' 의 손상된 행: UTF-8 이 아닙니다") from None
+    parts = text.split("\t")
     if len(parts) != len(table.columns):
         raise StorageError(
             f"테이블 '{table.name}' 의 손상된 행: 값이 {len(parts)}개 (컬럼 {len(table.columns)}개)"
@@ -111,9 +116,10 @@ class TableFile:
         self._open()
 
     def _open(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.touch(exist_ok=True)
+        # 디렉터리 생성부터 열기까지 바깥 세계와 닿는 모든 지점의 OSError 를 StorageError 로 바꾼다.
         try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.touch(exist_ok=True)
             self._file = open(self.path, "r+b")
         except OSError as e:
             raise StorageError(f"테이블 파일을 열 수 없습니다: {self.path} ({e})") from None
