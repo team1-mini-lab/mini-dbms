@@ -52,7 +52,7 @@ DESIGN 17단계 완료 기준입니다.
 | 400 | `bad_request` | 요청 자체가 잘못됨: JSON이 아님, `sql`이 없음, 요청 줄이 깨짐, `HTTP/2.0` 같은 모르는 버전 | `server.py` |
 | 400 | `bad_sql` | SQL이 틀림. 그 전까지 실행된(이미 저장된) 문장 결과를 `results`에 같이 담음 ([D30](./DECISIONS.md#step3)) | `server.py` |
 | 404 | `not_found` | `/query`가 아닌 주소 | `server.py` |
-| 405 | `method_not_allowed` | `GET`, `PUT` 등 POST가 아닌 방식 | `server.py` |
+| 405 | `method_not_allowed` | `PUT` 등 POST가 아닌 방식, `GET /query` (`GET /`·`/docs`는 브라우저용 시험 화면이라 200) | `server.py` |
 | 408 | `timeout` | 요청을 5초 안에 다 받지 못함 | `server_guard.py` |
 | 413 | `too_large` | 주소·요청 머리가 너무 김, 본문이 1MB를 넘음 | 둘 다 |
 | 500 | `internal` | 서버 고장. 자세한 내용은 로그에만 | `server.py` |
@@ -121,7 +121,8 @@ HTTP_ERRORS = {
 - `HTTP_ERRORS`는 "파이썬이 내려던 번호 → (우리가 보낼 번호, `code`, 설명)"을 적어 둔 표(`dict`)입니다. `HTTP_ERRORS.get(code, HTTP_ERRORS[400])`은 "표에서 찾고, 없으면 400 줄을 쓴다"는 뜻입니다.
 - 요청이 우리 `do_POST`에 오기 **전에** `http.server`가 문제를 발견하면 `send_error`를 부릅니다. 원래 이 함수는 HTML 오류 페이지를 보냅니다.
 - 이 함수를 바꿔 끼워서 그런 오류도 같은 JSON이 되게 했습니다. 15단계에서 `process_request`를 바꿔 끼운 것과 같은 방법입니다 (이어받아서 덮어쓰기).
-- **`GET`이 405가 되는 원리**: `http.server`는 `GET` 요청이 오면 `do_GET` 함수를 찾습니다. 우리는 `do_POST`만 만들었으니 함수가 없고, 그러면 `send_error(501)`을 부릅니다. `HTTP_ERRORS`가 501을 405 `method_not_allowed`로 바꿉니다. 405는 "주소는 있는데 그 방식은 안 받음"이라는 뜻이라 우리 상황에 더 맞습니다.
+- **`PUT` 같은 방식이 405가 되는 원리**: `http.server`는 `PUT` 요청이 오면 `do_PUT` 함수를 찾습니다. 우리는 그 함수를 만들지 않았으니, `http.server`가 `send_error(501)`(모르는 방식)을 부릅니다. `HTTP_ERRORS`가 501을 405 `method_not_allowed`로 바꿉니다. 405는 "주소는 있는데 그 방식은 안 받음"이라는 뜻이라 우리 상황에 더 맞습니다.
+- **`GET`은 조금 다릅니다**: 17단계 뒤에 브라우저로 API를 시험해 보는 화면(`GET /`, `GET /docs`)을 더하면서 `do_GET`이 생겼습니다. 그래서 `GET /`와 `GET /docs`는 HTML 화면(200), `GET /query`는 위와 똑같이 `send_error(501)`을 직접 불러 405, 그 밖의 주소는 404로 답합니다 (`server.py`의 `Handler.do_GET`).
 - `self.close_connection = True`: 오류를 보낸 뒤 연결을 닫게 표시합니다.
 
 ### ③ 요청 본문 검사 · `Handler.do_POST`, `Handler._parse_sql`
