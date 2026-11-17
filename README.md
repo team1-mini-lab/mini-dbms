@@ -104,7 +104,7 @@ python3 server.py --workers 1 --queue 1
 ```
 ---
 
-[동시 접속 Thread Pool · lock · 503 시뮬레이터 (AI Studio)](https://ai.studio/apps/fe913b5f-9510-4adf-95cd-9c66d095757e) · 같은 내용의 파일은 [`docs/study/threadpool_simulator.html`](docs/study/threadpool_simulator.html) (내려받아 브라우저로 열기)
+[동시 접속 Thread Pool · lock · 503 시뮬레이터 (AI Studio)] 같은 내용의 파일은 [`docs/study/threadpool_simulator.html`](docs/study/threadpool_simulator.html) (내려받아 브라우저로 열기)
 
 ### 왜 이벤트 루프 대신 스레드 여러 개(Thread Pool)를 썼나요?
 
