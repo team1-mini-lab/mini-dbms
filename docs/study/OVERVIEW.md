@@ -218,9 +218,9 @@ id 4인 행이 두 개 생기고, 목차에는 "4 → 위치"를 하나만 적�
 
 ```python
 class Engine:
-    def execute(self, sql):
-        with self._lock:              # A가 들어오면 잠금. B는 이 줄에서 기다림
-            return self._execute(sql) # ①②③을 다 끝내고 나가야 잠금이 풀림
+    @locked                           # A가 들어오면 잠금. B는 이 줄에서 기다림
+    def execute(self, sql):           # ①②③을 다 끝내고 나가야 잠금이 풀림
+        ...
 ```
 
 lock을 서버가 아니라 엔진 안에 두므로, CLI든 서버든 빠뜨릴 수 없습니다. 미니 레디스에서 저장소 안에 lock을 둔 것과 같은 방식입니다.

@@ -240,7 +240,7 @@ Phase 3 안에서는 16단계(lock) → 15단계(Thread Pool) → 17단계(오�
 | --- | --- | --- | --- |
 | Phase 3(16단계) lock | 완료. 스레드 100개 동시 INSERT → id 1\~100 빠짐없이 | [STEP16](./STEP16.md) | [D31\~D33](./DECISIONS.md#step16) |
 | Phase 3(15단계) Thread Pool | 완료. 스레드 4개가 동시 요청을 나눠 처리, 큐가 차면 503, 5초 timeout | [STEP15](./STEP15.md) | [D34\~D37, D40, D41](./DECISIONS.md#step15) |
-| Phase 3(17단계) API 오류 응답 | 진행 예정 | 작성 예정 | [D38\~D39 (제안)](./DECISIONS.md#step17) |
+| Phase 3(17단계) API 오류 응답 | 완료. 400·404·405·408·413·500·503 JSON 통일 + 1MB/전체시간 제한 + 부하 테스트 | [STEP17](./STEP17.md) | [D38\~D39, D42\~D46](./DECISIONS.md#step17) |
 
 **Phase 1·2에게**: lock은 `execute` 위에 `@locked` 한 줄로 걸었습니다. `execute` 안을 고쳐도 충돌하지 않습니다. 엔진이 한 번에 하나씩만 실행하므로 B+ 트리는 동시성을 신경 쓰지 않아도 됩니다.
 
