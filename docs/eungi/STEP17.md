@@ -1,8 +1,11 @@
+![phase3_architecture (2)](https://github.com/user-attachments/assets/8ba7ecbf-3729-48bd-b8f8-be1fdb90c284)
+
 # Phase 3(17단계): API 오류 응답과 서버 방어
 
 > **한 줄 요약**: 404·405·400·408·413·500·503 모든 오류를 `{"error": {"code", "message"}}` 한 모양으로 통일하고, 느린 요청·큰 본문·큐 가득 찬 상태 종료·옵션 오류를 막았으며, 부하 테스트(`bench/load_test.py`)로 스레드·큐·lock의 동작을 수치로 검증했습니다.
 
 Phase 3의 세 단계(16 lock → 15 Thread Pool → 17 오류 응답) 중 마지막 단계입니다. 앞선 단계는 [STEP16](./STEP16.md), [STEP15](./STEP15.md)에 있습니다.
+![Uploading phase3_architecture (2).svg…]()
 
 ## 왜 필요한가
 
