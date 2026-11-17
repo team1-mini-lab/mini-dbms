@@ -43,12 +43,47 @@ SELECT * FROM users WHERE id = 1;                   -- 꺼내기: 파일에서 i
 
 ## 터미널 시연
 
-"왜 DBMS인가"의 문제 1·2·3을 실제 서버 여러 개를 띄워 보여 줍니다. 먼저 각 서버가 파일을 직접 다루는 방식으로, 다음에 데이터베이스를 쓰는 방식으로 같은 순서를 돌립니다. 아직 미니 DBMS가 없어서, 데이터베이스 자리에는 파이썬에 들어 있는 SQLite를 씁니다.
+우리가 만든 미니 DBMS 서버를 켜고, 다른 터미널에서 `curl`로 SQL을 보내 봅니다. 파이썬만 있으면 되고, 설치할 것은 없습니다.
+
+**터미널 1: 서버 켜기**
 
 ```bash
-cd docs/study/WHY_DBMS
-python3 -m why_dbms_demo.scenario --step    # Enter를 누를 때마다 한 장면씩
-python3 -m why_dbms_demo.scenario --all     # 차별화 후보 A·B·C까지
+python3 server.py --port 8002      # 8002가 이미 쓰는 중이면 다른 숫자로 바꾸기
 ```
 
-`curl`로 하나씩 직접 요청해 보는 방법은 [시연 설명](docs/study/WHY_DBMS/why_dbms_demo/README.md)에 있습니다.
+```
+http://localhost:8002 에서 POST /query 를 기다립니다 (스레드 4개, 큐 16칸)
+```
+
+**터미널 2: 요청 보내기** (명령은 한 줄씩 붙여 넣으세요. `-d` 안에서 줄이 바뀌면 400이 납니다)
+
+```bash
+BASE=http://localhost:8002
+
+# ① 저장 → {"results": [{"type": "insert", "id": 1}]}  (처음 켰을 때. 이미 데이터가 있으면 다음 번호)
+curl -s -X POST $BASE/query -d "{\"sql\": \"INSERT INTO users (name, age) VALUES ('현지', 25);\"}"
+
+# ② 꺼내기 → "rows": [[1, "현지", 25]], "used_index": true (id로 찾아서 목차를 씀)
+curl -s -X POST $BASE/query -d '{"sql": "SELECT * FROM users WHERE id = 1;"}'
+
+# ③ 동시에 6개 저장 → id가 겹치지 않음 (16단계 lock)
+for i in 1 2 3 4 5 6; do curl -s -X POST $BASE/query -d "{\"sql\": \"INSERT INTO users (name, age) VALUES ('u$i', $i);\"}" & done; wait
+
+# ④ 틀린 요청 → 모두 {"error": {"code": ..., "message": ...}} 모양 (17단계)
+curl -s -X POST $BASE/query -d '{"sql": "SELEC * FROM users;"}'   # 400 bad_sql
+curl -s -X POST $BASE/abc -d '{}'                                  # 404 not_found
+curl -s -X GET  $BASE/query                                        # 405 method_not_allowed
+curl -s -X POST $BASE/query -d 'not json'                          # 400 bad_request
+```
+
+③을 보낸 뒤 터미널 1을 보면 `[worker-1]`, `[worker-3]`처럼 서로 다른 스레드 이름이 섞여 찍힙니다. 요청을 스레드 여러 개가 나눠 처리했다는 뜻입니다 (15단계 Thread Pool).
+
+```
+[worker-1] 127.0.0.1 - "POST /query HTTP/1.1" 200 -
+[worker-2] 127.0.0.1 - "POST /query HTTP/1.1" 200 -
+[worker-3] 127.0.0.1 - "POST /query HTTP/1.1" 400 -
+```
+
+서버를 Ctrl+C로 끄고 다시 켠 뒤 ②를 보내면 같은 줄이 나옵니다. 데이터는 `data/` 폴더의 파일에 남아 있습니다.
+
+더 많은 요청(503 바쁨, 408 시간 초과 등)과 서버 없이 도는 확인 스크립트는 [시연 순서](docs/eungi/DEMO.md)에 있습니다. "왜 DBMS인가"의 문제 1·2·3을 SQLite로 보여 주는 예전 시연은 [시연 설명](docs/study/WHY_DBMS/why_dbms_demo/README.md)에 그대로 있습니다.
