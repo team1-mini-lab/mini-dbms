@@ -3,7 +3,7 @@ import json
 import os
 import threading
 
-from index import DictIndex
+from index import BPlusTree
 from parser import Insert, parse
 from storage import Storage
 
@@ -29,7 +29,7 @@ class Engine:
         self.next_id = {}
         # CLI는 실행할 때마다 새로 켜지므로, 켤 때 파일을 읽어 목차와 다음 번호를 다시 만든다
         for table in self.schema:
-            self.index[table] = DictIndex()
+            self.index[table] = BPlusTree()
             last = 0
             for offset, row in self.storage.scan(table):
                 self.index[table].insert(row[0], offset)

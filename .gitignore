@@ -1,3 +1,4 @@
 data/*.tbl
 __pycache__/
 .DS_Store
+bench/*.sql
