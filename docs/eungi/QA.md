@@ -1,4 +1,4 @@
-# 회의록 보충: 실제 코드(`eungi` 브랜치)와 함께 보는 3가지 핵심 정리
+# 회의록 보충: 실제 코드(`eungi` 브랜치)와 함께 보는 2가지 핵심 정리
 
 > 기준 브랜치: `team1-mini-lab/mini-dbms` (`eungi` 브랜치) · 상위 안내 문서: [HANDOFF](./HANDOFF.md)
 
@@ -119,7 +119,10 @@ from parser import Insert, parse
 
 - 한글은 1글자가 3바이트라서 `"ab"`, `"rb"` 바이트 모드로 열어 `f.tell()`과 `f.seek(offset)`이 정확히 맞물리게 처리합니다.
 
-그리고 파일(`users.tbl`)에 남는 건 실제 데이터 줄뿐이고, **`next_id`랑 인덱스(`id → offset`)는 메모리에만** 올라가 있습니다. 그래서 프로그램을 끄면 메모리 내용은 다 날아가고, 대신 **다시 켜질 때(`__init__`, `engine.py` 12~25줄) 파일을 처음부터 한 번 쭉 읽으면서 인덱스와 `next_id`를 똑같이 복구**합니다.
+그리고 파일(`users.tbl`)에 남는 건 실제 데이터 줄(`1, 2, 3...`)뿐이고, **`next_id`랑 인덱스(`id → offset`)는 파이썬 변수(메모리)에만** 들어 있습니다.
+- 파이썬 변수는 **프로그램(CLI/서버)이 꺼지면 싹 날아갑니다.**
+- 만약 복구를 안 하면, 다음 날 다시 실행했을 때 `next_id`가 다시 `1`로 돌아가서 **기존 1번과 `id`가 겹치고**, `index`도 `{}`로 비어서 **기존 데이터를 `WHERE id = 2`로 못 찾게** 됩니다.
+- 그래서 **`Engine("data")`가 켜지는 순간(`__init__`, `engine.py` 12~25줄)** 디스크에 남은 `users.tbl` 파일을 처음부터 한 번 쭉 읽어서, 비어 있는 `self.index`와 `self.next_id` 변수를 이전 상태로 다시 채워 넣는 것입니다.
 
 ```python
 # engine.py (12~25줄)
@@ -131,12 +134,12 @@ from parser import Insert, parse
         self.next_id = {}
         # CLI는 실행할 때마다 새로 켜지므로, 켤 때 파일을 읽어 목차와 다음 번호를 다시 만든다
         for table in self.schema:
-            self.index[table] = DictIndex()                          # 20줄: 빈 메모리 인덱스 생성
+            self.index[table] = DictIndex()                          # 20줄: 방금 켜져서 비어 있는 메모리 인덱스
             last = 0
-            for offset, row in self.storage.scan(table):             # 22줄: 파일 전체를 처음부터 읽음
-                self.index[table].insert(row[0], offset)             # 23줄: id(row[0]) → offset 복구
+            for offset, row in self.storage.scan(table):             # 22줄: 디스크 파일을 처음부터 끝까지 읽음
+                self.index[table].insert(row[0], offset)             # 23줄: id(row[0]) → offset 다시 채움
                 last = max(last, row[0])
-            self.next_id[table] = last + 1                           # 25줄: 다음 번호 복구
+            self.next_id[table] = last + 1                           # 25줄: 제일 큰 id + 1 로 다음 번호 복구
 ```
 
 > **주의**: `cli.py` **7줄**과 `server.py` **6줄**을 보면 두 프로그램이 각각 따로 `Engine("data")`를 만들어 자기 메모리에 `next_id`를 들고 있습니다. 그래서 서버를 켜 둔 채로 CLI로 `INSERT`하면 `id`가 겹치므로, 쓰는 작업은 둘 중 하나만 해야 합니다.
@@ -166,63 +169,4 @@ engine = Engine("data")
             self.next_id[cmd.table] += 1                                 # 48줄: 쓰기 성공 후 번호 올림
             self.index[cmd.table].insert(new_id, offset)                 # 49줄: 인덱스 등록
             return {"type": "insert", "id": new_id}
-```
-
----
-
-## 3. 같은 `insert` / `search`를 가진 B+ 트리로 교체하는 부분
-
-지금 `index.py`(**1~11줄**)를 보면 파이썬 `dict`를 바로 쓰지 않고 `DictIndex` 클래스로 한 번 감싸 뒀습니다. 안에는 **`insert(key, value)`와 `search(key)` 딱 두 함수만** 있습니다.
-
-```python
-# index.py (1~11줄)
-class DictIndex:
-    """2단계 임시 인덱스. 12단계에서 같은 두 함수를 가진 B+ 트리로 바꾼다."""
-
-    def __init__(self):
-        self._d = {}
-
-    def insert(self, key, value):
-        self._d[key] = value
-
-    def search(self, key):
-        return self._d.get(key)
-```
-
-`engine.py`도 이 인덱스 내부가 `dict`인지 B+ 트리인지 전혀 모르고, 전체 코드 중 **딱 세 군데(23줄, 49줄, 67줄)에서만 `insert`와 `search`를 부릅니다.**
-
-```python
-# engine.py 내 인덱스 사용 3곳 전부
-# 1) __init__ (23줄): 켜질 때 파일 읽으면서 insert
-self.index[table].insert(row[0], offset)
-
-# 2) _run - INSERT (49줄): 방금 쓴 줄의 id와 offset을 insert
-self.index[cmd.table].insert(new_id, offset)
-
-# 3) _run - SELECT WHERE id = ? (67~68줄): search로 offset 조회 (없으면 None)
-offset = self.index[cmd.table].search(where.value)
-rows = [] if offset is None else [self.storage.read_at(cmd.table, offset)]
-```
-
-- **68줄**(`if offset is None`)처럼 첫 번째 줄의 `offset`은 `0`이기 때문에, B+ 트리의 `search`도 못 찾을 때는 반드시 `None`을 돌려줘야 `0`과 구별됩니다.
-
-그래서 B+ 트리 담당자(김소망 님)는 `bptree.py`에 `BPlusTree` 클래스를 만들 때 **똑같이 `insert(key, value)`와 `search(key)` 모양만 맞춰서** 구현한 뒤, 먼저 단독 검증 스크립트로 `6/6 통과`를 확인합니다.
-
-```bash
-python3 checks/check_index.py bptree BPlusTree
-```
-
-검증이 끝나면 마지막에 `engine.py`에서 **딱 두 줄(4줄, 20줄)만 바꾸면** 나머지 엔진·CLI·서버 코드는 손대지 않고 바로 교체됩니다.
-
-```python
-# engine.py (4줄, 20줄)
-# 변경 전
-from index import DictIndex          # 4줄
-...
-self.index[table] = DictIndex()      # 20줄
-
-# 변경 후
-from bptree import BPlusTree         # 4줄
-...
-self.index[table] = BPlusTree()      # 20줄
 ```
