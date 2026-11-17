@@ -58,4 +58,4 @@ python3 server.py --workers 1 --queue 1         # 터미널 1: 스레드 1개, �
 
 디스크: INSERT 몇 개 → 터미널 1에서 `Ctrl + C` → 다시 켜기 → `SELECT * FROM users;` 하면 그대로 있고, 다음 INSERT의 id가 이어집니다.
 
->  [Thread Pool · 큐(16) · 감시(408) · 503 시뮬레이터 실행하기](https://team1-mini-lab.github.io/mini-dbms/threadpool_simulator.html)**
+>  [Thread Pool · 큐(16) · 감시(408) · 503 시뮬레이터 실행하기](https://team1-mini-lab.github.io/mini-dbms/threadpool_simulator.html)
