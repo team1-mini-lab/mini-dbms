@@ -174,9 +174,9 @@ engine = Engine("data")
 
 ## 3. 같은 `insert` / `search`를 가진 B+ 트리로 교체하는 부분
 
-쉽게 말하면 **"나중에 `dict`를 B+ 트리로 바꿀 때 `engine.py`를 다 뜯어고치지 않으려고, 미리 함수 이름 2개를 맞춰놨다"**는 뜻입니다.
+쉽게 말하면 **"나중에 임시 `dict`를 B+ 트리로 갈아끼울 때, `engine.py`를 다 뜯어고치지 않게 미리 사용법만 똑같이 맞춰놨다"는 뜻입니다.
 
-만약 `engine.py`에 파이썬 `dict` 문법(`self.index[table][id] = offset`, `.get(id)`)을 그대로 써놨다면, 나중에 B+ 트리를 만들었을 때 `engine.py` 안을 전부 찾아서 고쳐야 합니다. 그래서 지금 `index.py`(**1~11줄**)를 보면 굳이 `DictIndex`라는 껍데기 클래스를 만들어서 함수 이름을 딱 2개(`insert`, `search`)로 정해뒀습니다.
+지금은 인덱스를 파이썬 `dict`로 만들었지만, 곧 B+ 트리로 바꿔야 합니다. 만약 `engine.py`에 `dict` 문법을 직접 써놨다면, 나중에 B+ 트리로 바꿀 때 `engine.py` 코드들을 전부 찾아 고쳐야 합니다. 그래서 지금 `index.py`(1~11줄)는 일부러 `DictIndex`라는 껍데기 클래스를 만들어서, 무조건 `insert`(넣기)와 `search`(찾기) 두 함수만 쓰게 해두었습니다.
 
 ```python
 # index.py (1~11줄)
@@ -186,39 +186,41 @@ class DictIndex:
     def __init__(self):
         self._d = {}
 
-    def insert(self, key, value):   # 저장할 땐 무조건 insert(id, 위치)
+    def insert(self, key, value):   # 넣기: id와 파일 위치(offset) 저장
         self._d[key] = value
 
-    def search(self, key):          # 찾을 땐 무조건 search(id) → 위치 또는 None
+    def search(self, key):          # 찾기: id 주면 파일 위치 돌려줌 (없으면 None)
         return self._d.get(key)
 ```
 
-덕분에 `engine.py`에서도 인덱스 내부가 `dict`인지 B+ 트리인지 신경 쓰지 않고, 전체 코드 중 **딱 세 군데(23줄, 49줄, 67줄)에서 `.insert(...)`와 `.search(...)` 두 이름만** 부르고 있습니다.
+덕분에 `engine.py`는 인덱스 속이 `dict`인지 B+ 트리인지 알 필요가 없고, 전체 코드 중 딱 세 군데(23줄, 49줄, 67줄)에서 `.insert(...)`와 `.search(...)`만  부릅니다.
 
 ```python
 # engine.py 내 인덱스 사용 3곳 전부
-# 1) __init__ (23줄): 켜질 때 파일 읽으면서 insert
+# 1) __init__ (23줄): 켜질 때 파일 읽으면서 넣기
 self.index[table].insert(row[0], offset)
 
-# 2) _run - INSERT (49줄): 방금 쓴 줄의 id와 offset을 insert
+# 2) _run - INSERT (49줄): 방금 쓴 줄의 id와 위치 넣기
 self.index[cmd.table].insert(new_id, offset)
 
-# 3) _run - SELECT WHERE id = ? (67~68줄): search로 offset 조회 (없으면 None)
+# 3) _run - SELECT WHERE id = ? (67~68줄): id로 위치 찾기
 offset = self.index[cmd.table].search(where.value)
 rows = [] if offset is None else [self.storage.read_at(cmd.table, offset)]
 ```
 
-- **68줄**(`if offset is None`)처럼 첫 번째 줄의 `offset`은 `0`이기 때문에, B+ 트리의 `search`도 못 찾을 때는 반드시 `None`을 돌려줘야 `0`과 구별됩니다.
+- 68줄**(`if offset is None`): 파일 맨 첫 줄의 위치는 `0`입니다. 그래서 B+ 트리도 못 찾았을 때는 `0`이나 `False`가 아니라 반드시 **`None`**을 돌려줘야 "첫 줄(`0`)"과 "없음(`None`)"을 구별할 수 있습니다.
 
-그래서 B+ 트리 담당자(김소망 님)는 `bptree.py`에 `BPlusTree` 클래스를 만드실 때 속은 B+ 트리로 구현하더라도 **겉의 `insert(key, value)`와 `search(key)` 이름·동작만 `index.py`와 똑같이** 맞춘 뒤, 먼저 아래 명령어로 단독 채점을 돌릴 수 있습니다.
+따라서 B+ 트리 담당자(김소망 님)는 `bptree.py`에 `BPlusTree` 클래스를 만드실 때, 안의 트리 구조는 자유롭게 짜시되 **겉에 보이는 `insert(key, value)`와 `search(key)` 함수 이름·동작만 `index.py`와 똑같이** 맞춰 주시면 됩니다.
+
+엔진에 붙이기 전에 아래 명령어로 혼자 먼저 테스트해 볼 수 있습니다:
 
 ```bash
 python3 checks/check_index.py bptree BPlusTree
 ```
 
-- 빈 인덱스(`None`), 정순 1만 건, 무작위 1만 건, 같은 키 덮어쓰기, `offset = 0` 조회 총 6가지(`height()`가 있으면 트리 높이도 출력)를 엔진에 붙이기 전에 혼자 테스트해 줍니다.
+- 비었을 때 `None` 나오는지, 1만 개를 순서대로/무작위로 넣어도 다 찾는지, 같은 `id`를 다시 넣으면 덮어쓰는지, 위치 `0`도 잘 찾는지 총 6가지를 자동으로 확인해 줍니다.
 
-테스트를 통과하면 마지막에 `engine.py`에서 **"어떤 인덱스를 쓸지" 정하는 딱 두 줄(4줄, 20줄)만** 바꾸면 나머지 코드는 한 글자도 안 고쳐도 바로 B+ 트리로 돌아갑니다.
+테스트를 다 통과하면, 마지막에 `engine.py`에서 `DictIndex`라고 적힌 **딱 두 줄(4줄, 20줄)만** `BPlusTree`로 바꾸면 나머지 코드는 한 줄도 안 고치고 교체가 끝납니다!
 
 ```python
 # engine.py (4줄, 20줄)
@@ -231,3 +233,4 @@ self.index[table] = DictIndex()      # 20줄
 from bptree import BPlusTree         # 4줄
 ...
 self.index[table] = BPlusTree()      # 20줄
+```
