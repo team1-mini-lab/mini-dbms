@@ -41,19 +41,6 @@ SELECT * FROM users WHERE id = 1;                   -- 꺼내기: 파일에서 i
 | 18\~19. 마무리 | 테스트 보완(기능, 동시 요청, 엣지 케이스), 문서 정리 |
 | 20\~24. 시간이 남으면 | 범위 검색(`WHERE id > 10`), 읽기/쓰기 lock(읽기끼리는 동시에), `EXPLAIN`(인덱스를 썼는지 보여 줌), 미니 레디스 캐시(같은 조회 결과를 저장해 두기), 인덱스 저장(켤 때 목차를 다시 만들지 않기) |
 
-## 실행 및 시연 방법 (CLI / API 웹 페이지 / 동시성 테스트)
-
-### 1. CLI로 SQL 파일 한 번에 실행
-```bash
-python3 cli.py examples/step1.sql
-```
-
-### 2. API 서버 켜기 + 브라우저 테스트 페이지 (`GET /`)
-```bash
-python3 server.py
-```
-서버를 켠 뒤 브라우저에서 **`http://localhost:8000`** 을 열면 `schema.json` 확인, `INSERT`·`SELECT`·오류 JSON(400/404/405/413) 테스트, 현재 저장된 `users.tbl` 데이터 표까지 바로 확인할 수 있습니다.
-
 ## 실행 및 시연
 
 외부 패키지 설치 없이 **Python 3**만으로 바로 실행할 수 있습니다.
@@ -91,7 +78,5 @@ python3 server.py --workers 1 --queue 1
 # 터미널 2: 앞 2칸을 점유한 상태에서 3번째 요청 → 즉시 503 busy 응답
 (sleep 3 | nc localhost 8000 &) && (sleep 3 | nc localhost 8000 &) && sleep 0.3 && curl -s -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'
 ```
-
 ---
-
 더 많은 요청(503 바쁨, 408 시간 초과 등)과 서버 없이 도는 확인 스크립트는 [시연 순서](docs/eungi/DEMO.md)에 있습니다. "왜 DBMS인가"의 문제 1·2·3을 SQLite로 보여 주는 예전 시연은 [시연 설명](docs/study/WHY_DBMS/why_dbms_demo/README.md)에 그대로 있습니다.
