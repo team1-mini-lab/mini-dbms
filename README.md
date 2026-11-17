@@ -37,7 +37,7 @@ SQL 한 줄이 서버에 들어와 파일에 닿기까지, 단계마다 문제 �
 | 3 | [설계](docs/DESIGN.md) | 단계별로 무엇을 만들고, 언제 완료인지, 어떤 방식을 제안했는지 볼 때 |
 | 4 | [학습 노트](docs/study/DBMS_study.md) | 구현하면서 "왜 이렇게 만드나"를 설명할 수 있는지 스스로 확인하고 싶을 때 |
 | 5 | [HANDOFF](docs/eungi/HANDOFF.md) | 작은 워킹 샘플(지도 만들기)과 Phase 3를 돌려 보고, 각자 이어서 만들 곳을 볼 때. Phase 1과 합친 기록은 7절 |
-| 6 | [결정 기록](docs/eungi/DECISIONS.md) | "왜 이렇게 만들었나"를 결정 번호로 볼 때 | 
+| 6 | [결정 기록](docs/eungi/DECISIONS.md) | "왜 이렇게 만들었나"를 결정 번호로 볼 때. 지도 만들기·Phase 3(D1\~D48), Phase 1(H1\~H12), Phase 2(S1\~S7) | 
 | 7 | [과제 요구사항](docs/REQUIREMENTS.md) | 과제가 무엇을 요구하는지 원문으로 확인하고 싶을 때 |
 
 과제 원문은 요구사항을 Phase 1·2·3으로 나눕니다.
