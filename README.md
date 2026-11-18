@@ -267,22 +267,7 @@ SELECT * FROM users WHERE id > 100;              -- id 범위 조건은 B+ 트�
 
 ### 실제 DBMS와의 차이
 
-<details>
-<summary>MySQL·PostgreSQL과 무엇이 다르고, 왜 이렇게 만들었나</summary>
-
-| 부분 | 실제 DBMS (MySQL, PostgreSQL) | mini-dbms | 그렇게 한 이유 |
-| --- | --- | --- | --- |
-| SQL 처리 | 토큰 → 구문 트리 → 실행 계획을 비교해 가장 빠른 방법 선택 | 토큰 → 구문 트리 → 바로 실행. id 조건이면 인덱스, 아니면 전체 스캔 | 테이블 하나를 조회하는 문장이라, 옵티마이저 없이도 SQL 처리 원리를 구현하기에 충분함 |
-| 저장 방식 | 8\~16KB 페이지 단위. 자주 쓰는 페이지는 메모리에 캐시(버퍼 풀) | 한 줄에 한 행, 값은 탭으로 나눠 파일 끝에 붙임 | 파일을 눈으로 바로 확인할 수 있고, 값에 쉼표나 한글이 들어가도 깨지지 않음 |
-| 인덱스 | B+ 트리를 디스크 페이지에 저장. 켤 때 다시 만들지 않음 | B+ 트리가 메모리에만 있음. 켤 때 파일을 읽어 다시 만듦 | 데이터 파일을 기준으로 다시 만들면 비정상 종료 뒤에도 항상 일치함 |
-| 동시성 | 행 단위 잠금 + 읽는 쪽이 옛 버전을 보는 방식(MVCC) | 엔진 입구의 읽기·쓰기 lock 하나[^1] | 기존 행을 고치지 않아 경합 지점이 다음 번호·파일 끝·인덱스뿐. 교착 상태가 없음. 대신 긴 SELECT 도중의 INSERT는 기다림 |
-| 트랜잭션·복구 | 여러 문장을 "모두 되거나 모두 안 되게" 묶음. 쓰기 전에 로그를 남겨(WAL) 꺼져도 복구 | 없음. 문장마다 바로 저장. 쓰다 만 마지막 줄만 켤 때 잘라 냄 | 파서·인덱스·서버에 집중. 대신 실행 중 오류면 앞 문장까지의 결과를 돌려줘 중복 재시도를 막음 |
-| 연결 처리 | 자체 통신 방식 + 스레드 풀이나 프로세스 | HTTP + JSON + 직접 만든 Thread Pool | 브라우저·`curl`로 별도 드라이버 없이 테스트할 수 있고, 대기열 상한으로 503 과부하 방어를 직접 제어함 |
-| 오류 | 표준 오류 코드(SQLSTATE) | 정해 둔 JSON 코드 `bad_sql`, `busy` 등 | `error.code` 하나로 원인을 구분하고, SQL 실수(400)와 서버 장애(500)를 나눠 내부 경로가 밖으로 나가지 않게 함 |
-
-</details>
-
-[^1]: 실제 DB의 행 단위 잠금은 기존 행을 고칠 때 그 행만 잠그는 방식입니다. 우리는 `UPDATE`·`DELETE`가 없어 고칠 행이 없고, INSERT끼리 다투는 건 테이블에 하나뿐인 다음 번호·파일 끝·B+ 트리입니다. 그래서 INSERT는 혼자, SELECT끼리는 같이 들어가는 읽기·쓰기 lock 하나로 충분합니다. 다만 파이썬은 GIL 때문에 한순간에 한 스레드만 코드를 실행해서, SELECT 여러 개의 총 시간은 lock 하나일 때와 거의 같습니다. 얻는 것은 짧은 SELECT가 긴 SELECT 뒤에서 기다리지 않는 것입니다 ([STEP16](docs/eungi/STEP16.md)).
+MySQL·PostgreSQL과 무엇이 다르고 왜 이렇게 만들었는지는 [실제 DBMS와 다른 점](docs/dbms-differences.md)에 항목별로 정리했습니다. 동시성(행 단위 잠금 대신 읽기·쓰기 lock), 인덱스(메모리에만, `id` 하나), 트랜잭션(없음) 등을 다룹니다.
 
 ### 한계
 
@@ -307,4 +292,5 @@ SELECT * FROM users WHERE id > 100;              -- id 범위 조건은 B+ 트�
 | [Phase 3](docs/eungi/) | Thread Pool([STEP15](docs/eungi/STEP15.md)), lock([STEP16](docs/eungi/STEP16.md)), 오류 응답([STEP17](docs/eungi/STEP17.md)) |
 | [결정 기록](docs/eungi/DECISIONS.md) | "왜 이렇게 만들었나"를 결정 번호로. Phase 1(H1\~H12), Phase 2(S1\~S7), Phase 3(D30\~D48) |
 | [학습 노트](docs/study/DBMS_study.md) | "왜 이렇게 만드나"를 설명할 수 있는지 스스로 확인할 때 |
+| [실제 DBMS와 다른 점](docs/dbms-differences.md) | MySQL·PostgreSQL과 다른 부분과 그렇게 만든 이유를 항목별로 |
 | [과제 요구사항](docs/REQUIREMENTS.md) | 과제 원문 |
