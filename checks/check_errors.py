@@ -24,6 +24,7 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, ROOT)
 
 from engine import Engine  # noqa: E402
+from minidb.errors import StorageError  # noqa: E402
 from server import Handler, PooledHTTPServer  # noqa: E402
 
 results = []
@@ -193,6 +194,19 @@ check("엔진 안의 디스크 오류 → 500 internal, 응답에 파일 경로 
       and tmp not in json.dumps(body, ensure_ascii=False), st)
 st, body, _ = request(port, "POST", "/query", sql_body("INSERT INTO users (name, age) VALUES ('현지', 25);"))
 check("그 뒤 정상 INSERT → 200 (lock이 풀려 있음)", st == 200, st)
+
+
+def broken_scan(table):                             # 테이블 파일 중간에 손상된 행이 있는 것처럼
+    raise StorageError(f"{table}: 손상된 행 (줄 2)")
+
+
+orig_scan = server.engine.storage.scan
+server.engine.storage.scan = broken_scan
+__import__("traceback").print_exc = lambda *a, **kw: None
+st, body, _ = request(port, "POST", "/query", sql_body("SELECT * FROM users;"))
+__import__("traceback").print_exc = orig_print_exc
+server.engine.storage.scan = orig_scan
+check("손상된 행(StorageError) → 500 internal (SQL 오류인 400이 아님)", st == 500 and body.get("error", {}).get("code") == "internal", st)
 stop_server(server, tmp)
 
 # 3. 스레드 1개·큐 1칸을 꽉 채우고 작은 요청 → 503

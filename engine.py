@@ -13,6 +13,7 @@ from pathlib import Path
 from index import BPlusTree
 from minidb.ast import Select
 from minidb.catalog import Catalog
+from minidb.errors import StorageError
 from minidb.executor import Executor
 from minidb.parser import parse
 from minidb.storage import Storage as TableFiles
@@ -108,6 +109,8 @@ class Engine:
         for stmt in statements:
             try:
                 results.append(self._run(stmt))
+            except StorageError:        # 파일이 깨짐: 손님이 고칠 수 없는 데이터 문제 → 위로 올림 → 서버는 500
+                raise
             except ValueError as e:     # SQL이 틀린 것만 결과에 담음 (minidb 오류는 모두 ValueError 하위). 그 밖은 위로 → 서버는 500
                 results.append({"type": "error", "message": str(e)})
                 if stop_on_error:
