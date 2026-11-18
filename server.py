@@ -240,8 +240,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/query":
             self.send_error(501)                  # GET /query → 기존 테스트(check_errors)대로 405 유지
             return
+        if self.path == "/health":                # 살아 있는지 (Render가 잠들었는지 확인할 때도 씀)
+            self._send(200, {"status": "ok"})
+            return
+        if self.path == "/stats":                 # Thread Pool이 지금 어떤 상태인지
+            self._send(200, self.server.stats())
+            return
         if self.path not in ("/", "/docs"):
-            self._error(404, "not_found", f"없는 주소입니다: {self.path} (브라우저는 / 또는 /docs, API는 POST /query)")
+            self._error(404, "not_found", f"없는 주소입니다: {self.path} (브라우저는 / 또는 /docs, 상태는 /health · /stats, API는 POST /query)")
             return
         schema_json = json.dumps(self.server.engine.schema, ensure_ascii=False).replace("</", "<\\/")
         out = API_PAGE_HTML.replace("__SCHEMA_JSON__", schema_json).encode("utf-8")
@@ -350,6 +356,10 @@ class PooledHTTPServer(HTTPServer):
         self.request_timeout = request_timeout
         self.jobs = queue.Queue(maxsize=queue_size)
         self.workers = []
+        self._stats_lock = threading.Lock()   # 아래 숫자 셋만 보호 (엔진 lock과 별개라 SQL 실행을 막지 않음)
+        self._busy = 0                        # 지금 요청을 처리 중인 스레드 수
+        self._handled = 0                     # 처리를 끝낸 요청 수
+        self._rejected = 0                    # 대기열이 꽉 차서 503으로 돌려보낸 수
         handler = type(handler.__name__, (handler,), {"timeout": request_timeout})   # 한 번 받을 때 기다리는 최대 시간
         super().__init__(address, handler)
         self.workers = [
@@ -364,6 +374,8 @@ class PooledHTTPServer(HTTPServer):
         try:
             self.jobs.put_nowait((request, client_address))   # 기다리지 않음. 꽉 차 있으면 바로 Full
         except queue.Full:
+            with self._stats_lock:
+                self._rejected += 1
             self._reject_busy(request)
             self.shutdown_request(request)
 
@@ -374,12 +386,24 @@ class PooledHTTPServer(HTTPServer):
             if job is None:                       # 서버를 끌 때 넣는 "그만" 신호
                 return
             request, client_address = job
+            with self._stats_lock:
+                self._busy += 1
             try:
                 self.finish_request(request, client_address)   # Handler를 만들어 do_POST 등을 실행
             except Exception:
                 self.handle_error(request, client_address)
             finally:
                 self.shutdown_request(request)    # 연결 닫기
+                with self._stats_lock:
+                    self._busy -= 1
+                    self._handled += 1
+
+    def stats(self):
+        """GET /stats: Thread Pool의 지금 상태. /stats 요청 자신도 스레드 하나를 쓰므로 busy는 1 이상."""
+        with self._stats_lock:
+            return {"workers": len(self.workers), "busy": self._busy,
+                    "queue": {"waiting": self.jobs.qsize(), "max": self.jobs.maxsize},
+                    "handled": self._handled, "rejected_503": self._rejected}
 
     def _reject_busy(self, request):
         """큐가 꽉 찼을 때: 503 JSON을 보내고, 클라이언트가 읽을 수 있게 닫는다."""

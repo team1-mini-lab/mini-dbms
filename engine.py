@@ -9,6 +9,7 @@ SQL을 읽고 검사하고 실행하고 저장하는 일, B+ 트리로 찾는 �
   - Executor 하나를 서버 전체가 같이 쓴다. B+ 트리는 Executor 메모리에만 있어서,
     요청마다 새로 만들면 매번 파일 전체를 다시 읽는다 (100만 건이면 약 1.9초).
   - 결과를 서버가 읽는 dict 모양으로 바꾼다 (접점 1).
+켤 때(__init__)는 테이블마다 B+ 트리를 미리 만들어 둔다 (예열). 첫 요청이 lock을 오래 잡지 않게.
 """
 import functools
 import threading
@@ -47,6 +48,10 @@ class Engine:
         }
         self.storage = Storage(data_dir, self.catalog)
         self.executor = Executor(self.catalog, self.storage)   # 서버 전체가 이것 하나를 같이 씀
+        # 예열: 실행기는 테이블을 처음 쓸 때 파일을 읽어 B+ 트리를 만든다 (100만 건이면 약 1.9초).
+        # 첫 요청이 그 일을 하면 그동안 lock을 잡아 다른 요청도 모두 기다리므로, 요청을 받기 전에 미리 만든다
+        for name in self.catalog.table_names:
+            self.executor.execute(parse(f"SELECT id FROM {name} WHERE id = 0;")[0])
 
     @locked
     def execute(self, sql, stop_on_error=True):

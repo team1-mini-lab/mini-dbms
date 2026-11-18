@@ -48,6 +48,8 @@ python3 checks/check_errors.py             # 오류 응답 모양 (400·404·405
 python3 checks/check_guard.py              # 엣지 방어 (느린 연결, Content-Length, 끄기)
 ```
 
+상태 확인: `GET /health` → `{"status": "ok"}`, `GET /stats` → 스레드 수, 처리 중인 스레드, 대기열, 처리한 요청 수, 503으로 돌려보낸 수. 서버를 켤 때 테이블마다 B+ 트리를 미리 만들어(예열) 첫 요청이 lock을 오래 잡지 않게 했다.
+
 ## 지원 SQL
 
 ```sql
