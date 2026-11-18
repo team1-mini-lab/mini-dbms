@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>파일 직접 vs DBMS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme: light;
+  --bg:#ECEFF3; --panel:#FFFFFF; --ink:#18202B; --sub:#55606E; --line:#CBD2DB;
+  --blue:#2457A6; --bluebg:#E1EAF7; --red:#B9362B; --redbg:#F8E3E0;
+  --dbms:#1E6E5E; --dbmsbg:#DDF0EA; --chip:#E3E7EC; --focus:#2457A6;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#11161D; --panel:#1A212B; --ink:#E7ECF2; --sub:#9AA6B4; --line:#2E3946;
+    --blue:#7FA7E6; --bluebg:#1C2B42; --red:#F08A7E; --redbg:#3A1F1C;
+    --dbms:#6CC7B3; --dbmsbg:#173430; --chip:#252E3A; --focus:#7FA7E6;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#11161D; --panel:#1A212B; --ink:#E7ECF2; --sub:#9AA6B4; --line:#2E3946;
+  --blue:#7FA7E6; --bluebg:#1C2B42; --red:#F08A7E; --redbg:#3A1F1C;
+  --dbms:#6CC7B3; --dbmsbg:#173430; --chip:#252E3A; --focus:#7FA7E6;
+}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);}
+*,*::before,*::after{box-sizing:inherit;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Noto Sans KR","Noto Sans CJK KR",sans-serif;font-size:15px;line-height:1.55;word-break:keep-all;}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 48px;}
+h1{font-size:28px;line-height:1.25;margin:0 0 6px;font-weight:700;}
+.lede{color:var(--sub);margin:0 0 22px;max-width:66ch;}
+button{font:inherit;color:inherit;cursor:pointer;}
+button:focus-visible{outline:3px solid var(--focus);outline-offset:2px;}
+.topbar{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.mode{display:inline-flex;background:var(--chip);border-radius:10px;padding:4px;gap:4px;}
+.mode button{border:0;background:transparent;padding:8px 16px;border-radius:7px;font-weight:600;color:var(--sub);}
+.mode button[aria-pressed="true"]{background:var(--panel);color:var(--ink);box-shadow:0 0 0 1px var(--line);}
+.reset{border:1px solid var(--line);background:var(--panel);padding:8px 14px;border-radius:8px;}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+.tabs [role="tab"]{border:1px solid var(--line);background:var(--panel);padding:8px 14px;border-radius:8px;font-weight:500;}
+.tabs [role="tab"][aria-selected="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink);}
+.tabs.more{align-items:center;margin-top:-4px;margin-bottom:16px;}
+.tabs.more [role="tab"]{border-style:dashed;padding:5px 10px;font-size:13px;color:var(--sub);}
+.tabs.more [role="tab"][aria-selected="true"]{color:var(--bg);border-style:solid;}
+.tabnote{font-size:12px;color:var(--sub);margin-right:4px;}
+.lede a{color:var(--blue);}
+.layout{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:18px;align-items:start;}
+@media (max-width:880px){.layout{grid-template-columns:1fr;}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;}
+.scenario h2{font-size:18px;margin:0 0 6px;}
+.scenario p{margin:0 0 12px;color:var(--sub);}
+.scenario .watch{background:var(--chip);border-radius:8px;padding:10px 12px;font-size:14px;}
+.actions{display:flex;flex-direction:column;gap:8px;margin:14px 0;}
+.actions button{border:1px solid var(--blue);background:var(--bluebg);padding:10px 12px;border-radius:9px;text-align:left;font-weight:500;}
+.actions button:disabled{opacity:.45;cursor:not-allowed;}
+.who{font-size:12px;color:var(--sub);display:block;font-weight:400;}
+.topo{display:flex;flex-direction:column;gap:10px;}
+.tierlabel{font-size:12px;color:var(--sub);text-align:center;}
+.progs{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;}
+.prog{border:2px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--panel);text-align:center;transition:border-color .2s;}
+.prog b{display:block;font-size:14px;}
+.prog small{display:block;font-size:12px;color:var(--sub);min-height:18px;}
+.prog.active{border-color:var(--blue);}
+.prog.broken{border-color:var(--red);background:var(--redbg);}
+.prog.broken small{color:var(--red);font-weight:600;}
+.prog.ok small{color:var(--blue);font-weight:600;}
+.down{width:2px;height:16px;background:var(--line);margin:0 auto;}
+.via{font-size:12px;color:var(--sub);text-align:center;font-family:"IBM Plex Mono",ui-monospace,monospace;}
+.files{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;}
+.file{border:2px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--chip);min-height:96px;}
+.file h3{margin:0 0 6px;font-size:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;display:flex;justify-content:space-between;gap:6px;}
+.file h3 .tag{font-family:inherit;font-size:11px;font-weight:500;color:var(--sub);}
+.file.stale,.file.broken{border-color:var(--red);background:var(--redbg);}
+.file.stale h3 .tag,.file.broken h3 .tag{color:var(--red);font-weight:600;}
+.lines{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;display:flex;flex-direction:column;gap:2px;}
+.lines .bad{color:var(--red);font-weight:600;}
+.lines .new{color:var(--blue);font-weight:600;}
+.dbmsbox{border:2px solid var(--dbms);border-radius:12px;padding:12px;background:var(--panel);}
+.dbmsbox > h3{margin:0 0 4px;font-size:15px;color:var(--dbms);}
+.dbmsbox > p{margin:0 0 10px;font-size:12px;color:var(--sub);}
+.tables{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;}
+.tbl{border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:12.5px;}
+.tbl .tn{background:var(--dbmsbg);color:var(--dbms);font-weight:700;padding:5px 8px;font-family:"IBM Plex Mono",ui-monospace,monospace;}
+.tbl table{border-collapse:collapse;width:100%;}
+.tbl th,.tbl td{padding:4px 8px;border-top:1px solid var(--line);text-align:left;font-family:"IBM Plex Mono",ui-monospace,monospace;}
+.tbl th{color:var(--sub);font-weight:500;}
+.tbl td.new,.tbl th.new{color:var(--blue);font-weight:700;}
+.disk{margin-top:8px;font-size:12px;color:var(--sub);text-align:center;}
+.extra{margin-top:10px;}
+.bar{height:22px;border-radius:6px;background:var(--chip);position:relative;overflow:hidden;border:1px solid var(--line);}
+.bar span{position:absolute;left:0;top:0;bottom:0;background:var(--red);opacity:.75;}
+.bar.idx span{background:var(--dbms);}
+.barlabel{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin:4px 0 10px;}
+.tree{display:flex;flex-direction:column;align-items:center;gap:6px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;}
+.tree div{border:1px solid var(--dbms);border-radius:6px;padding:3px 10px;background:var(--dbmsbg);}
+.qlist{display:flex;flex-direction:column;gap:8px;}
+.q{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--chip);font-size:13px;}
+.q pre{margin:6px 0 0;white-space:pre-wrap;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;}
+.steps{display:flex;flex-direction:column;gap:4px;font-size:13px;}
+.steps div{display:grid;grid-template-columns:90px 1fr;gap:8px;border-bottom:1px dashed var(--line);padding:3px 0;}
+.steps .t{color:var(--sub);font-family:"IBM Plex Mono",ui-monospace,monospace;}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px;}
+.stat{background:var(--chip);border-radius:10px;padding:10px 12px;}
+.stat b{display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:22px;}
+.stat b.bad{color:var(--red);}
+.stat small{color:var(--sub);}
+@media (max-width:560px){.stats{grid-template-columns:1fr;}}
+.result{margin-top:14px;border-radius:10px;padding:12px 14px;font-weight:600;display:none;}
+.result.show{display:block;}
+.result.bad{background:var(--redbg);color:var(--red);}
+.result.good{background:var(--bluebg);color:var(--blue);}
+.result.neutral{background:var(--chip);color:var(--ink);}
+.log{margin-top:18px;}
+.log h2{font-size:16px;margin:0 0 8px;}
+.log ol{list-style:none;margin:0;padding:0;max-height:240px;overflow:auto;font-size:13px;}
+.log li{padding:6px 0;border-bottom:1px solid var(--line);display:flex;gap:10px;}
+.log li .n{color:var(--sub);font-family:"IBM Plex Mono",ui-monospace,monospace;min-width:28px;}
+.log li.bad{color:var(--red);}
+.log li.good{color:var(--blue);}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.92em;}
+@keyframes ping{from{box-shadow:0 0 0 0 var(--blue);}to{box-shadow:0 0 0 10px transparent;}}
+.prog.ping{animation:ping .6s ease-out;}
+@media (prefers-reduced-motion: reduce){.prog.ping{animation:none;}.prog{transition:none;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>같은 파일을 여러 코드가 직접 쓰면 vs DBMS에 부탁하면</h1>
+  <p class="lede">order.py, report.py, delivery.py가 같은 주문 데이터를 함께 씁니다. 위에서 방식을 바꿔 가며 같은 버튼을 눌러 보세요. <b>파일 직접</b>은 코드마다 파일을 직접 열고 쓰는 방식, <b>DBMS</b>는 모든 코드가 SQL로 DBMS에 부탁하고 파일은 DBMS만 여는 방식입니다. 문제 1·2·3은 <a href="./WHY_DBMS.md">왜 DBMS인가</a>의 문제 1·2·3과 같습니다.</p>
+  <div class="topbar">
+    <div class="mode" role="group" aria-label="데이터 관리 방식">
+      <button type="button" data-mode="file" aria-pressed="true">파일 직접 (코드마다 파일을 엶)</button>
+      <button type="button" data-mode="dbms" aria-pressed="false">DBMS (SQL로 부탁)</button>
+    </div>
+    <button type="button" class="reset" id="reset">처음 상태로</button>
+  </div>
+  <div class="tabs" role="tablist" aria-label="핵심 문제">
+    <button role="tab" data-s="2" aria-selected="true">문제 1 · 열 추가</button>
+    <button role="tab" data-s="4" aria-selected="false">문제 2 · 100만 건에서 찾기</button>
+    <button role="tab" data-s="5" aria-selected="false">문제 3 · 동시에 사기</button>
+  </div>
+  <div class="tabs more" role="tablist" aria-label="차별화 후보">
+    <span class="tabnote">차별화 후보 (과제 필수 아님)</span>
+    <button role="tab" data-s="1" aria-selected="false">A · 주소가 두 파일에</button>
+    <button role="tab" data-s="3" aria-selected="false">B · 새 질문마다 코드</button>
+    <button role="tab" data-s="6" aria-selected="false">C · 저장하다 꺼짐</button>
+  </div>
+  <div class="layout">
+    <div class="panel scenario" id="scenario" role="tabpanel"></div>
+    <div class="panel">
+      <div class="topo">
+        <div class="tierlabel">코드</div>
+        <div class="progs" id="progs"></div>
+        <div class="down"></div>
+        <div class="via" id="via"></div>
+        <div class="down"></div>
+        <div id="storage"></div>
+        <div class="extra" id="extra"></div>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="result" id="result" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+  <div class="panel log">
+    <h2>기록</h2>
+    <ol id="log"></ol>
+  </div>
+</div>
+<script>
+(function(){
+"use strict";
+var $ = function(id){ return document.getElementById(id); };
+var esc = function(s){ return String(s).replace(/[&<>"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); };
+var won = function(n){ return n.toLocaleString("ko-KR") + "원"; };
+
+var mode = "file", scene = 2, st = {}, logN = 0, active = null;
+
+/* ---------- 공통 그리기 ---------- */
+function fileBox(name, lines, opt){
+  opt = opt || {};
+  var cls = "file" + (opt.stale ? " stale" : "") + (opt.broken ? " broken" : "");
+  var tag = opt.tag ? '<span class="tag">' + esc(opt.tag) + '</span>' : "";
+  var body = lines.length ? lines.map(function(l){
+    if (typeof l === "string") return "<div>" + esc(l) + "</div>";
+    return '<div class="' + l.c + '">' + esc(l.t) + "</div>";
+  }).join("") : '<div style="color:var(--sub)">(비어 있음)</div>';
+  return '<div class="' + cls + '"><h3><span>' + esc(name) + "</span>" + tag + '</h3><div class="lines">' + body + "</div></div>";
+}
+function table(name, cols, rows, opt){
+  opt = opt || {};
+  var newCol = opt.newCol, newRow = opt.newRow;
+  var h = '<div class="tbl"><div class="tn">' + esc(name) + "</div><table><tr>" +
+    cols.map(function(c){ return '<th class="' + (c === newCol ? "new" : "") + '">' + esc(c) + "</th>"; }).join("") + "</tr>";
+  if (!rows.length) h += '<tr><td colspan="' + cols.length + '" style="color:var(--sub)">(비어 있음)</td></tr>';
+  rows.forEach(function(r, i){
+    h += "<tr>" + r.map(function(v, j){
+      var n = (cols[j] === newCol) || (i === newRow);
+      return '<td class="' + (n ? "new" : "") + '">' + esc(v) + "</td>";
+    }).join("") + "</tr>";
+  });
+  return h + "</table></div>";
+}
+function dbmsBox(tablesHtml, note){
+  return '<div class="dbmsbox"><h3>DBMS</h3><p>' + esc(note || "파일은 DBMS만 직접 만집니다. 프로그램은 SQL로 부탁합니다.") +
+    '</p><div class="tables">' + tablesHtml + '</div><div class="disk">↓ 디스크의 파일 (DBMS만 접근)</div></div>';
+}
+function log(msg, cls){
+  logN += 1;
+  var li = document.createElement("li");
+  if (cls) li.className = cls;
+  li.innerHTML = '<span class="n">' + logN + "</span><span>" + msg + "</span>";
+  var ol = $("log"); ol.insertBefore(li, ol.firstChild);
+}
+function result(msg, cls){
+  var r = $("result");
+  if (!msg){ r.className = "result"; r.textContent = ""; return; }
+  r.className = "result show " + cls; r.innerHTML = msg;
+}
+function ping(name){ active = name; }
+
+/* ---------- 장면 정의 ---------- */
+var S = {};
+
+/* 차별화 A 주소: 같은 데이터가 여러 파일에 */
+S[1] = {
+  tab: "차별화 · 주소가 두 파일에",
+  title: "주소를 바꿨는데 택배는 옛날 집으로 간다",
+  desc: "kim의 주소가 회원 파일에도, 배송팀이 따로 복사해 둔 배송 파일에도 있습니다. 회원 프로그램은 배송 파일이 있는지조차 모릅니다.",
+  watch: "주소를 바꾼 뒤 주문해 보세요. 파일 방식에서는 배송 파일이 빨갛게 남고, 택배가 옛 주소로 갑니다.",
+  init: function(){ return { member:"강남구", ship:"강남구", sent:0, wrong:0 }; },
+  actions: [
+    { k:"move", l:"kim 이사: 주소를 송파구로 변경", who:"회원 프로그램 · 마이페이지" },
+    { k:"order", l:"kim 키보드 주문 → 배송 시작", who:"주문 → 배송 프로그램" }
+  ],
+  act: function(k){
+    if (k === "move"){
+      ping("회원");
+      if (st.member === "송파구"){ result("이미 송파구로 바뀌었습니다. 주문을 눌러 보세요.", "neutral"); return; }
+      st.member = "송파구";
+      if (mode === "file"){
+        log("회원 프로그램: <code>members.csv</code>의 kim 주소를 " + st.member + "로 수정. <code>shipping.csv</code>는 모름");
+        result("회원 파일만 바뀌었습니다. 배송 파일에는 여전히 " + st.ship + "가 남아 있습니다.", "neutral");
+      } else {
+        st.ship = st.member;
+        log("회원 프로그램: <code>UPDATE members SET address='" + st.member + "' WHERE name='kim'</code>", "good");
+        result("주소는 members 테이블 한 곳에만 있습니다. 바꾸면 끝입니다.", "good");
+      }
+    } else {
+      ping("배송"); st.sent += 1;
+      if (mode === "file"){
+        var ok = st.ship === st.member;
+        if (!ok) st.wrong += 1;
+        log("배송 프로그램: <code>shipping.csv</code>에서 kim 주소 읽기 → " + st.ship + "로 발송" + (ok ? "" : " (실제 주소는 " + st.member + ")"), ok ? "good" : "bad");
+        result(ok ? "주소가 같아서 문제없이 발송했습니다. 주소를 바꾼 뒤 다시 주문해 보세요." :
+          "옛날 집(" + st.ship + ")으로 발송했습니다. 같은 데이터가 두 파일에 복사되어 있고, 한쪽만 고쳐졌기 때문입니다.", ok ? "neutral" : "bad");
+      } else {
+        log("배송 프로그램: <code>SELECT address FROM orders JOIN members ...</code> → " + st.member + "로 발송", "good");
+        result("배송은 회원 테이블을 함께 조회(JOIN)하므로 항상 현재 주소(" + st.member + ")로 갑니다.", "good");
+      }
+    }
+  },
+  progs: function(){
+    return [
+      { n:"회원", s: mode === "file" ? "members.csv" : "SQL" },
+      { n:"주문", s:"" },
+      { n:"배송", s: mode === "file" ? "shipping.csv" : "SQL", bad: mode === "file" && st.wrong > 0 }
+    ];
+  },
+  via: function(){ return mode === "file" ? "각 프로그램이 자기 파일을 직접 열고 씀" : "모든 프로그램이 SQL로 DBMS에 부탁"; },
+  storage: function(){
+    if (mode === "file"){
+      var stale = st.ship !== st.member;
+      return '<div class="files">' +
+        fileBox("members.csv", ["kim," + st.member, "lee,마포구"], { tag:"회원팀" }) +
+        fileBox("shipping.csv", [stale ? { t:"kim," + st.ship, c:"bad" } : "kim," + st.ship, "lee,마포구"], { tag: stale ? "옛 주소!" : "배송팀 복사본", stale: stale }) +
+        "</div>";
+    }
+    return dbmsBox(table("members", ["name","address"], [["kim", st.member], ["lee","마포구"]]) +
+      table("orders", ["id","name","product"], st.sent ? [["1","kim","키보드"]] : []));
+  },
+  stats: function(){
+    return [
+      [mode === "file" ? 2 : 1, "kim 주소가 저장된 곳"],
+      [st.sent, "배송 건수"],
+      [st.wrong, "잘못 간 배송", st.wrong > 0]
+    ];
+  }
+};
+
+/* 문제 1: 열 하나 추가 */
+S[2] = {
+  tab: "문제 1 · 열 추가",
+  title: "열 하나 바꿀 때마다, 그 파일을 읽는 모든 코드를 같이 고쳐야 한다",
+  desc: "A의 order.py가 orders.csv에 주문을 쓰고, B의 report.py와 C의 delivery.py가 그 파일을 읽습니다. B와 C의 코드는 \"한 줄은 열 4개, 4번째가 가격\"이라고 믿고 읽습니다.",
+  watch: "먼저 B와 C를 눌러 보고, A가 쿠폰 열을 넣은 뒤 다시 눌러 보세요. 파일 방식은 B와 C가 멈추고, DBMS는 그대로입니다.",
+  init: function(){ return { coupon:false, status:{ "report.py":"", "delivery.py":"" }, broken:0 }; },
+  actions: [
+    { k:"settle", l:"B: 매출 합계 계산", who:"B · report.py" },
+    { k:"ship", l:"C: kim의 주문 찾기", who:"C · delivery.py" },
+    { k:"add", l:"A: 쿠폰 열 추가 (새 주문부터 열 5개)", who:"A · order.py" }
+  ],
+  act: function(k){
+    if (k === "add"){
+      ping("order.py");
+      if (st.coupon){ result("이미 쿠폰 열을 넣었습니다. B와 C를 다시 눌러 보세요.", "neutral"); return; }
+      st.coupon = true;
+      if (mode === "file"){
+        log("A: order.py가 이제 열 5개로 씀 → 새 주문 <code>3,park,모니터,WELCOME,300000</code>");
+        result("A는 자기 코드만 고쳤습니다. B와 C는 이 사실을 모릅니다. B와 C를 다시 눌러 보세요.", "neutral");
+      } else {
+        log("A: <code>ALTER TABLE orders ADD COLUMN coupon</code> → 새 주문 INSERT", "good");
+        result("열 목록은 DBMS가 고쳐 둡니다. B와 C는 열을 이름으로 요청하므로 고칠 게 없습니다.", "good");
+      }
+      return;
+    }
+    var name = k === "settle" ? "report.py" : "delivery.py";
+    var who = k === "settle" ? "B" : "C";
+    ping(name);
+    var total = st.coupon ? 370000 : 70000;
+    if (mode === "dbms"){
+      var sql = k === "settle" ? "SELECT SUM(price) FROM orders" : "SELECT * FROM orders WHERE user = 'kim'";
+      st.status[name] = "정상";
+      log(who + ": <code>" + sql + "</code> → " + (k === "settle" ? won(total) : "kim 주문 1건"), "good");
+      result(who + "의 코드는 <code>price</code>처럼 열을 이름으로 요청해서, 열이 늘어도 그대로 동작합니다.", "good");
+      return;
+    }
+    if (!st.coupon){
+      st.status[name] = "정상";
+      log(who + ": <code>id, user, product, price = line.split(\",\")</code> → " + (k === "settle" ? won(total) : "kim 주문 1건"), "good");
+      result("아직은 모든 줄이 열 4개라 정상입니다. A가 쿠폰 열을 넣은 뒤 다시 눌러 보세요.", "neutral");
+      return;
+    }
+    if (st.status[name] !== "멈춤") st.broken += 1;
+    st.status[name] = "멈춤";
+    log(who + ": 3번째 줄은 열 5개 → <code>ValueError: too many values to unpack (expected 4)</code>", "bad");
+    result(who + "는 코드를 한 글자도 안 고쳤는데 멈췄습니다. 고치려면 B와 C가 <b>모두</b> 코드를 바꿔 같은 날 배포해야 합니다.", "bad");
+  },
+  progs: function(){
+    return [
+      { n:"order.py", s:"A" + (st.coupon ? " · 열 5개로 씀" : "") },
+      { n:"report.py", s:"B" + (st.status["report.py"] ? " · " + st.status["report.py"] : ""), bad: st.status["report.py"] === "멈춤", ok: st.status["report.py"] === "정상" },
+      { n:"delivery.py", s:"C" + (st.status["delivery.py"] ? " · " + st.status["delivery.py"] : ""), bad: st.status["delivery.py"] === "멈춤", ok: st.status["delivery.py"] === "정상" }
+    ];
+  },
+  via: function(){ return mode === "file" ? "세 코드가 orders.csv를 직접 열고 쉼표로 나눔" : "세 코드가 열 이름으로 SQL 요청"; },
+  storage: function(){
+    if (mode === "file"){
+      var lines = ["1,kim,키보드,50000", "2,lee,마우스,20000"];
+      if (st.coupon) lines.push({ t:"3,park,모니터,WELCOME,300000", c:"new" });
+      return '<div class="files">' + fileBox("orders.csv", lines, { tag: st.coupon ? "열 4개와 열 5개가 섞임" : "id,user,product,price", stale: st.coupon }) + "</div>";
+    }
+    var cols = ["id","user","product","price"], rows = [["1","kim","키보드","50000"],["2","lee","마우스","20000"]];
+    if (st.coupon){ cols.push("coupon"); rows = [["1","kim","키보드","50000",""],["2","lee","마우스","20000",""],["3","park","모니터","300000","WELCOME"]]; }
+    return dbmsBox(table("orders", cols, rows, { newCol: st.coupon ? "coupon" : null, newRow: st.coupon ? 2 : null }), "열 목록(id, user, product, price…)은 DBMS만 압니다. 코드는 이름으로 요청합니다.");
+  },
+  stats: function(){
+    var fix = mode === "file" && st.coupon ? 2 : 0;
+    return [[mode === "file" ? 3 : 1, "열 순서를 아는 곳"], [st.broken, "멈춘 코드", st.broken > 0], [fix, "같이 고쳐야 할 코드", fix > 0]];
+  }
+};
+
+/* 차별화 B 질문 */
+var QS = [
+  { k:"q1", l:"지난달 서울 30대가 가장 많이 산 상품 10개는?", a:"키보드, 마우스, 모니터 …",
+    sql:"SELECT product, COUNT(*) FROM orders JOIN members USING (name)\nWHERE city='서울' AND age BETWEEN 30 AND 39\nGROUP BY product ORDER BY 2 DESC LIMIT 10;", lines:42 },
+  { k:"q2", l:"그럼 부산 20대는?", a:"마우스, 이어폰, 키보드 …",
+    sql:"… WHERE city='부산' AND age BETWEEN 20 AND 29 …", lines:38 },
+  { k:"q3", l:"카테고리별 이번 주 매출은?", a:"주변기기 1,240만 원, 모니터 860만 원 …",
+    sql:"SELECT category, SUM(price) FROM orders JOIN products USING (product)\nWHERE ordered_at >= '2026-11-09' GROUP BY category;", lines:55 }
+];
+S[3] = {
+  tab: "차별화 · 새 질문마다 코드",
+  title: "질문 하나에 프로그램 하나",
+  desc: "마케팅팀이 데이터로 질문을 합니다. 파일 방식에서는 질문마다 개발자가 회원 파일과 주문 파일을 반복문으로 엮는 코드를 새로 짜야 합니다.",
+  watch: "질문을 차례로 눌러 보세요. 파일 방식은 기다린 날짜와 코드 줄 수가 계속 쌓이고, DBMS는 SQL 문장만 바뀝니다.",
+  init: function(){ return { days:0, lines:0, done:0, asked:[] }; },
+  actions: QS.map(function(q){ return { k:q.k, l:q.l, who:"마케팅팀" }; }),
+  act: function(k){
+    var q = QS.filter(function(x){ return x.k === k; })[0];
+    ping("마케팅"); st.done += 1;
+    if (mode === "file"){
+      st.days += 2; st.lines += q.lines;
+      st.asked.unshift({ q:q.l, code:"for line in open(\"members.csv\"): …\nfor line in open(\"orders.csv\"): …\ncounts = …  # 반복문 " + q.lines + "줄, 개발자 2일" });
+      log("마케팅 → 개발자에게 요청. 반복문 " + q.lines + "줄 작성, 2일 뒤 답: " + q.a, "bad");
+      result("답을 얻는 데 2일이 걸렸습니다. 질문이 조금만 바뀌어도 코드를 새로 짜야 합니다. 데이터는 있는데 꺼내 쓸 수가 없습니다.", "bad");
+    } else {
+      st.asked.unshift({ q:q.l, code:q.sql });
+      log("마케팅: SQL 한 문장 → 바로 답: " + q.a, "good");
+      result("원하는 것만 적으면 어떻게 찾을지는 DBMS가 정합니다. 질문이 바뀌면 문장만 바꿉니다.", "good");
+    }
+  },
+  progs: function(){ return [{ n:"마케팅", s: st.done ? "질문 " + st.done + "개" : "" }, { n:"개발자", s: mode === "file" ? (st.days ? st.days + "일 사용" : "") : "필요 없음" }]; },
+  via: function(){ return mode === "file" ? "질문마다 \"어떻게 찾을지\"를 코드로" : "\"무엇을 원하는지\"만 SQL로"; },
+  storage: function(){
+    var src = mode === "file" ? '<div class="files">' + fileBox("members.csv", ["kim,서울,34", "lee,부산,27", "…"]) + fileBox("orders.csv", ["kim,키보드,50000", "lee,마우스,20000", "…"]) + "</div>"
+      : dbmsBox(table("members", ["name","city","age"], [["kim","서울","34"],["lee","부산","27"]]) + table("orders", ["name","product","price"], [["kim","키보드","50000"],["lee","마우스","20000"]]));
+    return src;
+  },
+  extra: function(){
+    if (!st.asked.length) return "";
+    return '<div class="qlist">' + st.asked.slice(0, 3).map(function(a){
+      return '<div class="q"><b>' + esc(a.q) + "</b><pre>" + esc(a.code) + "</pre></div>";
+    }).join("") + "</div>";
+  },
+  stats: function(){ return [[st.days + "일", "기다린 시간", st.days > 0], [st.lines, "새로 짠 코드 줄 수", st.lines > 0], [st.done, "답을 얻은 질문"]]; }
+};
+
+/* 문제 2 검색 */
+var SIZES = [1000, 10000, 100000, 1000000];
+S[4] = {
+  tab: "문제 2 · 100만 건에서 찾기",
+  title: "데이터가 많아지면 느려진다",
+  desc: "delivery.py가 주문번호 하나를 찾습니다. 파일 방식은 1번째 줄부터 하나씩 비교하고, DBMS는 목차(인덱스, B+ 트리)에서 위치를 찾아 그 줄만 읽습니다. 시간은 한 줄에 1µs로 가정한 예시 값입니다.",
+  watch: "\"주문 10배로 늘리기\"와 \"주문번호 하나 찾기\"를 번갈아 눌러 보세요. 파일 방식은 읽은 줄 수가 10배씩 늘고, 인덱스는 거의 그대로입니다.",
+  init: function(){ return { si:0, read:0, ms:0, last:null }; },
+  actions: [
+    { k:"grow", l:"주문 10배로 늘리기", who:"시간이 흐름" },
+    { k:"find", l:"주문번호 하나 찾기 (무작위)", who:"고객 · 주문 조회 화면" }
+  ],
+  act: function(k){
+    var n = SIZES[st.si];
+    if (k === "grow"){
+      if (st.si >= SIZES.length - 1){ result("이미 100만 건입니다. 찾기를 눌러 보세요.", "neutral"); return; }
+      st.si += 1; n = SIZES[st.si];
+      log("주문이 " + n.toLocaleString() + "건이 되었습니다.");
+      result("주문 " + n.toLocaleString() + "건. 찾기를 눌러 보세요.", "neutral");
+      return;
+    }
+    ping("delivery.py");
+    var id = 1 + Math.floor(Math.random() * n);
+    if (mode === "file"){
+      st.read = id; st.ms = id / 1000; st.last = id / n;
+      log("주문번호 " + id.toLocaleString() + " 찾기: 처음부터 " + id.toLocaleString() + "줄 읽고 비교 → 약 " + fmtMs(st.ms), st.ms > 100 ? "bad" : "");
+      result(st.ms > 100 ? "조회 한 번에 " + fmtMs(st.ms) + ". 1초에 수백 명이 조회하면 서버가 버티지 못합니다. 파일은 처음부터 읽는 방법밖에 없습니다." :
+        "아직은 빠릅니다(" + fmtMs(st.ms) + "). 주문을 늘린 뒤 다시 찾아 보세요.", st.ms > 100 ? "bad" : "neutral");
+    } else {
+      var h = height(n);
+      st.read = 1; st.ms = 0.02 * h + 0.01; st.last = id / n;
+      log("주문번호 " + id.toLocaleString() + " 찾기: B+ 트리 " + h + "층 내려가 위치 확인 → 그 한 줄만 읽음 → 약 " + fmtMs(st.ms), "good");
+      result("데이터가 " + n.toLocaleString() + "건이어도 트리를 " + h + "층만 내려가고 한 줄만 읽습니다. 목차를 보고 바로 찾아갑니다.", "good");
+    }
+  },
+  progs: function(){ return [{ n:"delivery.py", s: st.read ? st.read.toLocaleString() + "줄 읽음" : "", bad: mode === "file" && st.ms > 100 }]; },
+  via: function(){ return mode === "file" ? "for line in open(\"orders.csv\"): if id == …" : "SELECT * FROM orders WHERE id = ?"; },
+  storage: function(){
+    var n = SIZES[st.si];
+    if (mode === "file"){
+      return '<div class="files">' + fileBox("orders.csv", ["1,kim,키보드,50000", "2,lee,마우스,20000", "…", n.toLocaleString() + ",…"], { tag: n.toLocaleString() + "줄" }) + "</div>";
+    }
+    var h = height(n), lv = [];
+    for (var i = 0; i < h; i++) lv.push("<div>" + (i === h - 1 ? "리프: id → 파일 위치" : (i === 0 ? "루트" : "내부 노드") ) + "</div>");
+    return dbmsBox('<div class="tree">' + lv.join("") + '</div>' + table("orders", ["id","name","product"], [["1","kim","키보드"],["…","…","…"],[n.toLocaleString(),"…","…"]]),
+      "orders " + n.toLocaleString() + "건 · id 인덱스(B+ 트리, 노드당 키 약 100개) " + h + "층");
+  },
+  extra: function(){
+    if (st.last === null) return "";
+    var n = SIZES[st.si], pct = mode === "file" ? Math.max(st.last * 100, 0.5) : Math.max(100 / n, 0.5);
+    return '<div class="bar' + (mode === "dbms" ? " idx" : "") + '"><span style="width:' + pct.toFixed(1) + '%"></span></div>' +
+      '<div class="barlabel"><span>파일의 처음</span><span>읽은 부분: ' + st.read.toLocaleString() + "줄 / " + n.toLocaleString() + '줄</span><span>끝</span></div>';
+  },
+  stats: function(){ return [[SIZES[st.si].toLocaleString(), "주문 수"], [st.read.toLocaleString(), "마지막 조회에서 읽은 줄"], [st.ms ? fmtMs(st.ms) : "-", "걸린 시간 (예시)", mode === "file" && st.ms > 100]]; }
+};
+function height(n){ return Math.max(1, Math.ceil(Math.log(n) / Math.log(100))); }
+function fmtMs(ms){ return ms >= 1000 ? (ms / 1000).toFixed(2) + "초" : (ms >= 1 ? ms.toFixed(0) + "ms" : ms.toFixed(2) + "ms"); }
+
+/* 문제 3: 동시에 사기 */
+S[5] = {
+  tab: "문제 3 · 동시에 사기",
+  title: "두 사람이 동시에 쓰면 망가진다",
+  desc: "재고가 1개 남았고(stock.txt에 1), kim과 lee가 거의 동시에 주문합니다. 주문은 \"재고 읽기 → 살 수 있는지 판단 → 하나 줄여서 쓰기\" 순서입니다.",
+  watch: "동시 구매를 눌러 보세요. 파일 방식은 두 사람 다 1을 읽어서 둘 다 삽니다. DBMS는 kim이 끝날 때까지 lee를 기다리게 해서 한 명만 삽니다.",
+  init: function(){ return { stock:1, sold:0, orders:[], steps:[] }; },
+  actions: [
+    { k:"buy", l:"kim과 lee가 동시에 마지막 1개 구매", who:"order.py 두 번 실행" },
+    { k:"restock", l:"재고 1개 다시 채우기", who:"관리자" }
+  ],
+  act: function(k){
+    if (k === "restock"){ st.stock = 1; st.steps = []; log("관리자: 재고를 1로"); result("재고 1개. 다시 동시 구매를 눌러 보세요.", "neutral"); return; }
+    ping("order.py (lee)");
+    if (st.stock <= 0){
+      st.steps = [["kim", "읽음 → 0 → 품절"], ["lee", "읽음 → 0 → 품절"]];
+      log("재고 0: 둘 다 품절"); result("재고가 없습니다. 재고를 다시 채운 뒤 눌러 보세요.", "neutral"); return;
+    }
+    if (mode === "file"){
+      st.steps = [["1. kim", "stock.txt 읽음 → 1 → 살 수 있음"], ["2. lee", "stock.txt 읽음 → 1 → 살 수 있음 (kim이 아직 안 써서)"],
+        ["3. kim", "stock.txt에 0을 씀"], ["4. lee", "stock.txt에 0을 씀"]];
+      st.orders.push("kim,키보드", "lee,키보드"); st.sold += 2; st.stock = 0;
+      log("kim, lee 둘 다 \"1개 남음\"을 읽고 구매 → 2명에게 팖", "bad");
+      result("<b>키보드는 1개였는데 2명이 샀습니다.</b> 두 사람이 각자 파일을 열어서, \"kim 끝날 때까지 기다려\"라고 말해 줄 곳이 없었습니다.", "bad");
+    } else {
+      st.steps = [["1. kim", "읽음 → 1 → 0을 씀. 끝"], ["   lee", "도착. kim이 끝날 때까지 기다림 (lock)"], ["2. lee", "읽음 → 0 → 품절"]];
+      st.stock = 0; st.sold += 1; st.orders.push("kim,키보드");
+      log("DBMS: kim 먼저 처리 → lee는 기다렸다가 재고 0 확인 → 품절", "good");
+      result("모든 주문이 DBMS 한 곳으로 오니까, DBMS가 한 명씩 차례로 처리합니다(lock). 1개면 한 명만 삽니다.", "good");
+    }
+  },
+  progs: function(){ return [{ n:"order.py (kim)", s:"kim" }, { n:"order.py (lee)", s:"lee", bad: mode === "file" && st.sold > 1 }]; },
+  via: function(){ return mode === "file" ? "두 실행이 같은 stock.txt를 각자 직접 읽고 씀" : "두 주문이 DBMS에 줄을 서고, lock으로 한 명씩"; },
+  storage: function(){
+    var orders = st.orders.slice(-6);
+    if (mode === "file"){
+      return '<div class="files">' + fileBox("stock.txt", [String(st.stock)], { tag:"재고", stale: st.sold > 1 }) +
+        fileBox("sales.csv", orders, { tag:"판매 기록" }) + "</div>";
+    }
+    return dbmsBox(table("stock", ["product","count"], [["키보드", String(st.stock)]]) +
+      table("sales", ["user","product"], orders.map(function(o){ var p = String(o).split(","); return [p[0], p[1] || ""]; })), "lock: 한 번에 한 주문만 재고를 읽고 씀");
+  },
+  extra: function(){
+    if (!st.steps.length) return "";
+    return '<div class="steps">' + st.steps.map(function(s){ return '<div><span class="t">' + esc(s[0]) + "</span><span>" + esc(s[1]) + "</span></div>"; }).join("") + "</div>";
+  },
+  stats: function(){ return [[1, "처음 재고"], [st.sold, "키보드를 산 사람", st.sold > 1], [st.stock, "지금 재고"]]; }
+};
+
+/* 차별화 C 중간에 꺼짐 */
+S[6] = {
+  tab: "차별화 · 저장하다 꺼짐",
+  title: "저장하다 꺼지면 돈만 빠진다",
+  desc: "주문 하나를 처리하려면 1. 결제 기록 추가 → 2. 재고 1 줄이기 → 3. 주문 추가, 세 가지를 고쳐야 합니다. 2번을 하는 도중에 전원이 나가면 어떻게 될까요?",
+  watch: "정상 처리 한 번, 전원 끄기 한 번을 눌러 보세요. 파일 방식은 결제와 주문 수가 어긋나고 재고 파일이 깨집니다. DBMS는 트랜잭션으로 없던 일이 됩니다.",
+  init: function(){ return { pay:[], stock:10, ord:[], stockBroken:false, steps:[] }; },
+  actions: [
+    { k:"ok", l:"주문 처리 (정상)", who:"주문 프로그램" },
+    { k:"crash", l:"주문 처리 중 2번(재고) 단계에서 전원 끄기", who:"정전" }
+  ],
+  act: function(k){
+    ping("주문");
+    var no = st.pay.length + 1;
+    if (st.stockBroken && mode === "file"){ result("재고 파일이 깨져 있어서 읽을 수 없습니다. 처음 상태로 돌려 다시 해 보세요.", "bad"); log("주문 프로그램: stock.txt 읽기 실패 (파일 손상)", "bad"); return; }
+    if (k === "ok"){
+      st.pay.push("결제 #" + no); st.stock -= 1; st.ord.push("주문 #" + no);
+      st.steps = [["1. 결제", "완료"], ["2. 재고", "완료"], ["3. 주문", "완료"]];
+      log((mode === "file" ? "파일 세 개를 차례로 수정" : "BEGIN → 세 작업 → COMMIT") + ": 결제·재고·주문 모두 반영", "good");
+      result("세 가지가 모두 반영되었습니다.", "good");
+      return;
+    }
+    if (mode === "file"){
+      st.pay.push("결제 #" + no); st.stockBroken = true;
+      st.steps = [["1. 결제", "payments.csv에 추가 → 완료"], ["2. 재고", "stock.txt 쓰는 도중 정전 → 반만 써짐"], ["3. 주문", "실행 안 됨"]];
+      log("정전: 결제 #" + no + "은 기록됐는데 주문은 없음. stock.txt는 반만 써져 읽을 수 없음", "bad");
+      result("<b>고객 돈은 결제됐는데 주문은 없습니다.</b> 여러 파일의 변경을 \"전부 되거나 전부 안 되거나\"로 묶는 장치가 없기 때문입니다.", "bad");
+    } else {
+      st.steps = [["1. 결제", "트랜잭션 안에서 기록"], ["2. 재고", "도중 정전"], ["재시작", "COMMIT 전이었으므로 1번까지 되돌림"]];
+      log("DBMS: BEGIN → 결제 기록 → 재고 수정 중 정전 → 재시작 시 COMMIT 안 된 변경을 되돌림. 결제·재고·주문 모두 그대로", "good");
+      result("트랜잭션은 COMMIT까지 와야 반영됩니다. 중간에 꺼지면 <b>셋 다 없던 일</b>이 되어, 다시 시도하면 됩니다.", "good");
+    }
+  },
+  progs: function(){ return [{ n:"주문", s:"", bad: mode === "file" && st.pay.length !== st.ord.length }]; },
+  via: function(){ return mode === "file" ? "파일 세 개를 하나씩 차례로 수정" : "BEGIN; 결제; 재고; 주문; COMMIT;"; },
+  storage: function(){
+    if (mode === "file"){
+      return '<div class="files">' +
+        fileBox("payments.csv", st.pay.slice(-4), { tag:"결제" }) +
+        fileBox("stock.txt", [st.stockBroken ? { t:"재고: 9▒▒ (손상)", c:"bad" } : "재고: " + st.stock], { tag: st.stockBroken ? "깨짐" : "재고", broken: st.stockBroken }) +
+        fileBox("orders.csv", st.ord.slice(-4), { tag:"주문", stale: st.pay.length !== st.ord.length }) + "</div>";
+    }
+    return dbmsBox(table("payments", ["no"], st.pay.slice(-4).map(function(p){ return [p]; })) +
+      table("stock", ["product","count"], [["키보드", String(st.stock)]]) +
+      table("orders", ["no"], st.ord.slice(-4).map(function(p){ return [p]; })), "트랜잭션: COMMIT 전에는 반영되지 않음. 변경은 로그에 먼저 기록");
+  },
+  extra: S[5].extra,
+  stats: function(){
+    var diff = st.pay.length - st.ord.length;
+    return [[st.pay.length, "결제 건수"], [st.ord.length, "주문 건수"], [diff, "돈만 빠진 건수", diff > 0]];
+  }
+};
+
+/* ---------- 화면 그리기 ---------- */
+function renderScenario(){
+  var s = S[scene];
+  var h = "<h2>" + esc(s.title) + "</h2><p>" + esc(s.desc) + '</p><div class="watch"><b>볼 것</b> · ' + esc(s.watch) + '</div><div class="actions">';
+  s.actions.forEach(function(a){ h += '<button type="button" data-act="' + a.k + '">' + esc(a.l) + '<span class="who">' + esc(a.who) + "</span></button>"; });
+  $("scenario").innerHTML = h + "</div>";
+}
+function render(){
+  var s = S[scene];
+  $("progs").innerHTML = s.progs().map(function(p){
+    var c = "prog" + (p.bad ? " broken" : (p.ok ? " ok" : "")) + (active === p.n ? " active ping" : "");
+    return '<div class="' + c + '"><b>' + esc(p.n) + "</b><small>" + esc(p.s || "") + "</small></div>";
+  }).join("");
+  active = null;
+  $("via").textContent = s.via();
+  $("storage").innerHTML = s.storage();
+  $("extra").innerHTML = s.extra ? s.extra() : "";
+  $("stats").innerHTML = s.stats().map(function(x){ return '<div class="stat"><b class="' + (x[2] ? "bad" : "") + '">' + esc(x[0]) + "</b><small>" + esc(x[1]) + "</small></div>"; }).join("");
+}
+function resetScene(silent){
+  st = S[scene].init(); result(null);
+  if (!silent) log("[" + S[scene].tab + "] " + (mode === "file" ? "파일 직접" : "DBMS") + " 방식으로 처음 상태");
+  render();
+}
+function setScene(n){
+  scene = n;
+  document.querySelectorAll('[role="tab"]').forEach(function(b){ b.setAttribute("aria-selected", String(+b.dataset.s === n)); });
+  renderScenario(); resetScene(false);
+  if (location.hash !== "#scene-" + n) history.replaceState(null, "", "#scene-" + n);
+}
+function setMode(m){
+  mode = m;
+  document.querySelectorAll("[data-mode]").forEach(function(b){ b.setAttribute("aria-pressed", String(b.dataset.mode === m)); });
+  resetScene(false);
+}
+$("scenario").addEventListener("click", function(e){
+  var b = e.target.closest("[data-act]"); if (!b) return;
+  S[scene].act(b.dataset.act); render();
+});
+document.querySelectorAll('[role="tab"]').forEach(function(b){ b.addEventListener("click", function(){ setScene(+b.dataset.s); }); });
+document.querySelectorAll("[data-mode]").forEach(function(b){ b.addEventListener("click", function(){ setMode(b.dataset.mode); }); });
+$("reset").addEventListener("click", function(){ resetScene(false); });
+function fromHash(){ var m = /scene-([1-6])/.exec(location.hash); setScene(m ? +m[1] : 2); }
+window.addEventListener("hashchange", fromHash);
+fromHash();
+})();
+</script>
+</body>
+</html>
