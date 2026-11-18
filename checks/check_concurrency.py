@@ -6,8 +6,9 @@
 
 임시 폴더에서 돌리므로 data/users.tbl은 건드리지 않습니다.
 
-lock을 끈 쪽에서 id가 확실히 겹치도록, 이 스크립트 안에서만 "파일에 쓰기" 직전에 아주 짧게 쉬게 합니다.
-(실제 코드에는 쉬는 부분이 없습니다. 쉬지 않으면 INSERT가 너무 빨라서 우연히 안 겹칠 때가 많기 때문입니다.)
+lock을 끈 쪽에서 id가 확실히 겹치도록, 이 스크립트 안에서만 "번호 읽기"와 "번호 올리기" 사이에 아주 짧게 쉬게 합니다.
+(실제 코드에는 쉬는 부분이 없습니다. minidb는 번호를 읽자마자 바로 올려서 틈이 아주 좁고,
+ 그래서 쉬지 않으면 우연히 안 겹칠 때가 많습니다. 틈이 좁을 뿐 0은 아니라서 lock이 필요합니다.)
 """
 import contextlib
 import os
@@ -33,13 +34,17 @@ def run(use_lock):
     if not use_lock:
         engine._lock = contextlib.nullcontext()          # lock 대신 "아무것도 안 하는 것"을 끼움
 
-    original_append = engine.storage.append
+    next_ids = engine.executor._next_ids                  # minidb 실행기가 테이블별 다음 번호를 적어 두는 곳
 
-    def slow_append(table, row):                          # "번호 읽기"와 "번호 올리기" 사이를 넓힘
-        time.sleep(SLOW_WRITE_SECONDS)
-        return original_append(table, row)
+    def slow_next_id(table):                              # minidb의 _next_id와 같은 일을 하되, 읽기와 올리기 사이를 넓힘
+        if table.name not in next_ids:
+            next_ids[table.name] = 1 + max((int(row[0]) for _, row in engine.storage.scan(table.name)), default=0)
+        new_id = next_ids[table.name]                     # ① 번호 읽기
+        time.sleep(SLOW_WRITE_SECONDS)                    #    ← 이 틈에 다른 스레드도 같은 번호를 읽음
+        next_ids[table.name] = new_id + 1                 # ② 번호 올리기
+        return new_id
 
-    engine.storage.append = slow_append
+    engine.executor._next_id = slow_next_id
 
     start_together = threading.Barrier(THREADS)           # 모든 스레드가 준비되면 동시에 출발
     ids = []
