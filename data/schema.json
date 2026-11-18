@@ -1,11 +1,4 @@
 {
-  "users": {
-    "columns": [
-      {"name": "id",   "type": "INT"},
-      {"name": "name", "type": "TEXT"},
-      {"name": "age",  "type": "INT"}
-    ]
-  },
   "students": {
     "columns": [
       {"name": "id",    "type": "INT"},

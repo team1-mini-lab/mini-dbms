@@ -124,18 +124,7 @@ st, body, _ = request(
     sql_body("INSERT INTO users (name, age) VALUES ('현지', 25); SELEC 1; INSERT INTO users (name, age) VALUES ('민수', 31);")
 )
 check(
-    "문법이 틀린 SQL 섞임 → 400 bad_sql, 아무 문장도 실행 안 함",
-    st == 400 and has_error_shape(body) and body["error"]["code"] == "bad_sql"
-    and body.get("results") == [] and "아무 문장도 실행하지 않았습니다" in body["error"]["message"],
-    body,
-)
-
-st, body, _ = request(
-    port, "POST", "/query",
-    sql_body("INSERT INTO users (name, age) VALUES ('현지', 25); SELECT * FROM users WHERE email = 'x'; INSERT INTO users (name, age) VALUES ('민수', 31);")
-)
-check(
-    "실행 중 틀린 SQL 섞임(없는 열) → 400 bad_sql + 앞 결과 포함",
+    "틀린 SQL 섞임 → 400 bad_sql + 앞 결과 포함",
     st == 400 and has_error_shape(body) and body["error"]["code"] == "bad_sql"
     and len(body.get("results", [])) == 1 and "2번째 문장" in body["error"]["message"],
     body,

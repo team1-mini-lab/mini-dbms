@@ -6,12 +6,8 @@
 """
 
 
-class MiniDBError(ValueError):
-    """모든 미니 DBMS 오류의 부모.
-
-    ValueError를 이어받는 이유: 엔진·서버는 ValueError를 "SQL이 틀림"(400 bad_sql)으로,
-    그 밖의 예외를 "서버 고장"(500 internal)으로 구별한다 (DECISIONS D47).
-    """
+class MiniDBError(Exception):
+    """모든 미니 DBMS 오류의 부모."""
 
 
 class ParseError(MiniDBError):
