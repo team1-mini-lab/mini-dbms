@@ -145,7 +145,31 @@ while leaf is not None:
 - **lock은 엔진 입구 한 곳.** 요청 하나(문장 여러 개)를 통째로 묶을 수 있고, 실행기는 고치지 않아도 되고, 스레드가 없는 CLI에는 붙지 않습니다.
 
 ```mermaid
-%%{init: {"theme": "default", "themeVariables": {"fontSize": "22px", "noteBkgColor": "#fef3c7", "noteBorderColor": "#d97706", "actorBkg": "#f3f4f6", "actorBorder": "#374151"}, "sequence": {"actorMargin": 30, "width": 120, "messageMargin": 45, "actorFontSize": 20, "messageFontSize": 20, "noteFontSize": 18, "mirrorActors": false}}}%%
+---
+config:
+  theme: default
+  fontSize: 26
+  themeVariables:
+    fontSize: 26px
+    signalTextColor: "#000000"
+    noteTextColor: "#000000"
+    actorTextColor: "#000000"
+    signalColor: "#111827"
+    noteBkgColor: "#fef3c7"
+    noteBorderColor: "#d97706"
+    actorBkg: "#f3f4f6"
+    actorBorder: "#374151"
+  themeCSS: "text, tspan { font-weight: 700 !important; }"
+  sequence:
+    mirrorActors: false
+    actorMargin: 20
+    width: 130
+    height: 95
+    messageMargin: 55
+    actorFontSize: 26
+    messageFontSize: 24
+    noteFontSize: 22
+---
 sequenceDiagram
     autonumber
     participant S as 서버<br>server.py
@@ -155,20 +179,20 @@ sequenceDiagram
     participant B as B+ 트리<br>bptree.py
     participant F as 파일<br>storage.py<br>→ users.tbl
 
-    S->>E: execute("INSERT ... SELECT ...")<br>SQL 글자 한 덩어리
+    S->>E: execute(<br>"INSERT ... SELECT ...")<br>SQL 글자 한 덩어리
     rect rgba(255, 200, 120, 0.25)
     Note over E,F: 🔒 lock 안: 한 번에 한 요청만
     E->>P: parse(sql)
-    P-->>E: [Insert 객체, Select 객체]
+    P-->>E: [Insert 객체,<br>Select 객체]
 
-    E->>X: execute(Insert 객체)
+    E->>X: execute(<br>Insert 객체)
     Note right of X: 열·타입 확인<br>다음 id = 1
     X->>F: 끝에 한 줄 쓰기<br>"1 현지 25"
     F-->>X: 파일 위치<br>(몇 번째 바이트)
-    X->>B: insert(id 1, 파일 위치)
-    X-->>E: QueryResult(<br>columns=("id",), rows=((1,),))
+    X->>B: insert(id 1,<br>파일 위치)
+    X-->>E: QueryResult(<br>columns=("id",),<br>rows=((1,),))
 
-    E->>X: execute(Select 객체)
+    E->>X: execute(<br>Select 객체)
     X->>B: search(id 1)
     B-->>X: 파일 위치
     X->>F: 그 파일 위치의<br>한 줄 읽기
@@ -177,7 +201,7 @@ sequenceDiagram
 
     Note over E: 두 결과를 dict로 바꿔<br>목록으로 묶음
     end
-    E-->>S: [ {type: insert, id: 1},<br>{type: select, ..., used_index: true} ]
+    E-->>S: [ {type: insert, id: 1},<br>{type: select, ...,<br>used_index: true} ]
     Note over S: json.dumps → HTTP 200 응답
 ```
 
