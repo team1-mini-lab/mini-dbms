@@ -14,7 +14,7 @@ SELECT * FROM users WHERE id = 1;                   -- 꺼내기: B+ 트리로 �
 **2. 많은 행 (Phase 2).** 목차가 없으면 100만 건을 처음부터 훑습니다(1,364ms). INSERT 때 자동으로 붙는 id와 그 줄의 파일 위치를 메모리의 목차(B+ 트리)에 적어 두고, 찾을 때 그 줄만 읽습니다(0.032ms). DB는 `id > 990000`처럼 범위를 묻는데, 해시 테이블은 키를 칸마다 흩어 두어 범위를 찾으려면 전부 봐야 합니다. 그래서 키를 정렬해 이웃끼리 이어 두는 B+ 트리를 골랐습니다. [→ 왜 B+ 트리인가](#phase-2-왜-해시-테이블이-아니라-b-트리인가요)
 
 **3. 동시에 오는 요청 (Phase 3).**
-- **스레드 4개가 병렬로 처리합니다** → 요청 받기와 응답 보내기는 동시에 하고, 데이터를 만지는 실행만 한 줄로 섭니다. 그래서 접속만 하고 요청을 다 보내지 않는 느린 연결 하나에 모두가 막히지 않습니다.
+- **스레드 4개가 병렬로 처리합니다** → 요청 받기와 응답 보내기는 스레드 4개가 동시에 하고, SQL을 실제로 실행하는 부분만 lock 때문에 한 번에 한 요청씩 합니다. 그래서 접속만 하고 요청을 다 보내지 않는 느린 연결 하나에 모두가 막히지 않습니다.
 - **실행은 lock으로 한 번에 하나씩** → 동시에 들어온 두 INSERT가 같은 id를 받지 않게.
 - **그래서 스레드 수를 정했습니다** → 실행이 하나씩이라 스레드를 늘려도 빨라지지 않고, 긴 쿼리가 오면 그동안 요청이 쌓입니다. mini-redis는 처리가 키 조회 정도로 짧아 요청마다 스레드를 만들어도 금방 끝났지만, DBMS는 실행이 길 수 있어 스레드 4개와 대기열 16칸까지만 받고 넘치면 바로 503으로 돌려보냅니다.
 
@@ -145,7 +145,7 @@ while leaf is not None:
 - **lock은 엔진 입구 한 곳.** 요청 하나(문장 여러 개)를 통째로 묶을 수 있고, 실행기는 고치지 않아도 되고, 스레드가 없는 CLI에는 붙지 않습니다.
 
 ```mermaid
-%%{init: {"theme": "default", "themeVariables": {"fontSize": "18px", "noteBkgColor": "#fef3c7", "noteBorderColor": "#d97706", "actorBkg": "#f3f4f6", "actorBorder": "#374151"}, "sequence": {"actorMargin": 70, "messageMargin": 40, "actorFontSize": 18, "messageFontSize": 17, "noteFontSize": 16, "mirrorActors": false}}}%%
+%%{init: {"theme": "default", "themeVariables": {"fontSize": "22px", "noteBkgColor": "#fef3c7", "noteBorderColor": "#d97706", "actorBkg": "#f3f4f6", "actorBorder": "#374151"}, "sequence": {"actorMargin": 30, "width": 120, "messageMargin": 45, "actorFontSize": 20, "messageFontSize": 20, "noteFontSize": 18, "mirrorActors": false}}}%%
 sequenceDiagram
     autonumber
     participant S as 서버<br>server.py
@@ -153,7 +153,7 @@ sequenceDiagram
     participant P as 파서<br>parser.py
     participant X as 실행기<br>executor.py
     participant B as B+ 트리<br>bptree.py
-    participant F as 파일<br>storage.py → users.tbl
+    participant F as 파일<br>storage.py<br>→ users.tbl
 
     S->>E: execute("INSERT ... SELECT ...")<br>SQL 글자 한 덩어리
     rect rgba(255, 200, 120, 0.25)
@@ -163,21 +163,21 @@ sequenceDiagram
 
     E->>X: execute(Insert 객체)
     Note right of X: 열·타입 확인<br>다음 id = 1
-    X->>F: 끝에 한 줄 쓰기 "1 현지 25"
-    F-->>X: 파일 위치
+    X->>F: 끝에 한 줄 쓰기<br>"1 현지 25"
+    F-->>X: 파일 위치<br>(몇 번째 바이트)
     X->>B: insert(id 1, 파일 위치)
-    X-->>E: QueryResult(columns=("id",), rows=((1,),))
+    X-->>E: QueryResult(<br>columns=("id",), rows=((1,),))
 
     E->>X: execute(Select 객체)
     X->>B: search(id 1)
     B-->>X: 파일 위치
-    X->>F: 그 파일 위치의 한 줄 읽기
+    X->>F: 그 파일 위치의<br>한 줄 읽기
     F-->>X: (1, "현지", 25)
-    X-->>E: QueryResult(..., used_index=True)
+    X-->>E: QueryResult(...,<br>used_index=True)
 
-    Note over E: 두 결과를 dict로 바꿔 목록으로 묶음
+    Note over E: 두 결과를 dict로 바꿔<br>목록으로 묶음
     end
-    E-->>S: [ {type: insert, id: 1}, {type: select, ..., used_index: true} ]
+    E-->>S: [ {type: insert, id: 1},<br>{type: select, ..., used_index: true} ]
     Note over S: json.dumps → HTTP 200 응답
 ```
 
@@ -185,7 +185,7 @@ sequenceDiagram
 
 ### Phase 3: 스레드는 왜 여럿이고, 왜 4개와 16칸인가요?
 
-**요청은 스레드 4개가 병렬로 처리하고, 데이터를 만지는 실행만 lock으로 한 줄로 섭니다.** 요청 하나는 "받기 → 실행 → 보내기"이고, 받기와 보내기는 서로 겹쳐도 됩니다.
+**요청 받기와 응답 보내기는 스레드 4개가 동시에 하고, SQL을 실제로 실행하는 부분만 lock 때문에 한 번에 한 요청씩 합니다.** 요청 하나는 "받기 → 실행 → 보내기"이고, 받기와 보내기는 서로 겹쳐도 됩니다.
 
 ![스레드 1개는 A를 다 끝내야 B를 받기 시작해 27에 끝나고, 스레드 4개는 받기·보내기를 동시에 하고 실행(lock)만 하나씩 해서 13에 끝남](docs/images/phase3_overlap.png)
 <sub>시간은 설명용 단위입니다. 실제 측정은 아래 숫자를 보세요.</sub>
