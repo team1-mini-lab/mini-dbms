@@ -12,5 +12,13 @@
       {"name": "name",  "type": "TEXT"},
       {"name": "grade", "type": "INT"}
     ]
+  },
+  "products": {
+    "columns": [
+      {"name": "id",       "type": "INT"},
+      {"name": "name",     "type": "TEXT"},
+      {"name": "category", "type": "TEXT"},
+      {"name": "price",    "type": "INT"}
+    ]
   }
 }
