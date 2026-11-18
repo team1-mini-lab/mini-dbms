@@ -10,7 +10,7 @@ config:
     signalColor: "#111827"
     noteBkgColor: "#fef3c7"
     noteBorderColor: "#d97706"
-    actorBkg: "#f3f4f6"
+    actorBkg: "#9fcbfd"
     actorBorder: "#374151"
   themeCSS: "text, tspan { font-weight: 700 !important; }"
   sequence:
@@ -33,11 +33,12 @@ sequenceDiagram
     participant F as 파일<br>storage.py<br>→ users.tbl
 
     S->>E: execute("INSERT ... SELECT ...")<br>SQL 글자 한 덩어리
-    rect rgba(255, 200, 120, 0.25)
-    Note over E,F: 🔒 lock 안: 한 번에 한 요청만
+    Note over E,P: lock 밖에서 파싱
     E->>P: parse(sql)
     P-->>E: [Insert 객체, Select 객체]
-
+    Note over E: 전부 Select 객체 → 읽기 lock<br>Insert 객체 있음 → 쓰기 lock
+    rect rgba(255, 200, 120, 0.25)
+    Note over E,F: 쓰기 lock 안 (혼자 실행)
     E->>X: execute(Insert 객체)
     Note right of X: 열·타입 확인<br>다음 id = 1
     X->>F: 끝에 한 줄 쓰기 "1 현지 25"
@@ -51,8 +52,7 @@ sequenceDiagram
     X->>F: 그 파일 위치의 한 줄 읽기
     F-->>X: (1, "현지", 25)
     X-->>E: QueryResult(...,<br>used_index=True)
-
-    Note over E: 두 결과를 dict로 바꿔<br>목록으로 묶음
     end
+    Note over E: 두 결과를 dict로 바꿔<br>목록으로 묶음
     E-->>S: [ {type: insert, id: 1},<br>{type: select, ..., used_index: true} ]
     Note over S: json.dumps → HTTP 200 응답
