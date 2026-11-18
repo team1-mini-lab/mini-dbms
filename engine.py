@@ -1,13 +1,21 @@
+"""엔진: CLI와 서버가 SQL을 넘기는 단 하나의 입구(execute).
+
+SQL을 읽고 검사하고 실행하고 저장하는 일은 Phase 1의 minidb(lexer → parser → catalog → executor → storage)가 맡는다.
+엔진이 하는 일은 셋뿐이다.
+  - lock (Phase 3, 16단계): execute 전체를 한 번에 한 스레드만 지나가게 한다.
+  - B+ 트리 인덱스 (Phase 2): INSERT가 쓴 파일 위치를 적어 두고, WHERE id = ? 는 그 한 줄만 읽는다.
+  - 결과를 서버·CLI가 읽는 dict 모양으로 바꾼다 (접점 1).
+"""
 import functools
-import json
-import os
 import threading
+from pathlib import Path
 
 from index import BPlusTree
-from parser import Insert, parse
-from storage import Storage
-
-TYPES = {"INT": int, "TEXT": str}
+from minidb.ast import Select
+from minidb.catalog import Catalog
+from minidb.executor import Executor
+from minidb.parser import parse
+from minidb.storage import Storage as TableFiles
 
 
 def locked(method):
@@ -22,90 +30,113 @@ def locked(method):
     return wrapper
 
 
+class _Files:
+    """minidb 저장소를 '테이블 이름 + 행' 모양으로 감싼다. 확인 스크립트가 append를 바꿔 끼우는 자리."""
+
+    def __init__(self, files):
+        self._files = files
+
+    def append(self, table, row):
+        return self._files.table(table).append(row)
+
+    def scan(self, table):
+        return self._files.table(table).scan()
+
+    def read_at(self, table, offset):
+        return self._files.table(table).read_at(offset)
+
+    def close(self):
+        self._files.close()
+
+
+class _TableForExecutor:
+    """minidb 실행기가 부르는 storage.table(name)의 자리. 쓸 때마다 위치를 B+ 트리에 적는다."""
+
+    def __init__(self, engine, name):
+        self._engine = engine
+        self._name = name
+
+    def append(self, row):
+        offset = self._engine.storage.append(self._name, row)   # 엔진을 거쳐 부름 (확인 스크립트가 바꿔 끼울 수 있게)
+        self._engine.index[self._name].insert(row[0], offset)   # Phase 2: "id → 파일 위치"를 목차에
+        return offset
+
+    def scan(self):
+        return self._engine.storage.scan(self._name)
+
+    def read_at(self, offset):
+        return self._engine.storage.read_at(self._name, offset)
+
+
+class _StorageForExecutor:
+    def __init__(self, engine):
+        self._engine = engine
+
+    def table(self, name):
+        return _TableForExecutor(self._engine, name)
+
+
 class Engine:
     def __init__(self, data_dir):
         self._lock = threading.Lock()   # Phase 3(16단계): lock을 만든다. execute를 부를 때마다 이 lock을 잠근다
-        self.storage = Storage(data_dir)
-        with open(os.path.join(data_dir, "schema.json"), encoding="utf-8") as f:
-            self.schema = json.load(f)
+        schema_path = Path(data_dir) / "schema.json"
+        if not schema_path.exists():    # 서버·CLI가 "데이터 폴더를 열 수 없습니다"로 알려 주게 OSError로
+            raise FileNotFoundError(f"스키마 파일이 없습니다: {schema_path}")
+        self.catalog = Catalog.load(schema_path)
+        self.schema = {                 # 서버의 테스트 페이지가 보여 주는 테이블 모양
+            name: [[c.name, c.type] for c in self.catalog.table(name).columns]
+            for name in self.catalog.table_names
+        }
+        self.storage = _Files(TableFiles(data_dir, self.catalog))
+        # 목차는 메모리에만 있어서 끄면 사라진다. 엔진을 만들 때마다 파일을 처음부터 읽어 다시 만든다
         self.index = {}
-        self.next_id = {}
-        # 목차와 다음 번호는 메모리에만 있어서 끄면 사라진다. 그래서 엔진을 만들 때마다(CLI는 실행할 때마다,
-        # 서버는 켤 때 한 번) 파일을 처음부터 읽어 다시 만든다
-        for table in self.schema:
-            self.index[table] = BPlusTree()
-            last = 0
-            for offset, row in self.storage.scan(table):
-                self.index[table].insert(row[0], offset)
-                last = max(last, row[0])
-            self.next_id[table] = last + 1
+        for name in self.catalog.table_names:
+            self.index[name] = BPlusTree()
+            for offset, row in self.storage.scan(name):
+                self.index[name].insert(row[0], offset)
+        self.executor = Executor(self.catalog, _StorageForExecutor(self))
 
     @locked
     def execute(self, sql, stop_on_error=False):
         """CLI는 기본값(틀린 문장이 있어도 계속), 서버는 stop_on_error=True(첫 오류에서 멈춤)로 부른다."""
+        try:
+            statements = parse(sql)
+        except ValueError as e:         # 문법 오류: minidb는 문장 전체를 거절한다 (하나도 실행하지 않음)
+            return [{"type": "error", "stage": "parse",
+                     "message": f"문법 오류라 아무 문장도 실행하지 않았습니다: {e}"}]
         results = []
-        for stmt in [s.strip() for s in sql.split(";") if s.strip()]:   # 임시: Phase 1(4단계)에서 토큰 뒤에 나눔
+        for stmt in statements:
             try:
-                results.append(self._run(parse(stmt)))
-            except ValueError as e:                       # Phase 3(17단계): SQL이 틀린 것만 결과에 담음. 그 밖(디스크 오류 등)은 위로 → 서버는 500
+                results.append(self._run(stmt))
+            except ValueError as e:     # SQL이 틀린 것만 결과에 담음 (minidb 오류는 모두 ValueError 하위). 그 밖은 위로 → 서버는 500
                 results.append({"type": "error", "message": str(e)})
                 if stop_on_error:
-                    break                                 # 뒤 문장은 실행하지 않음
+                    break
         return results
 
-    def _run(self, cmd):
-        if cmd.table not in self.schema:
-            raise ValueError(f"{cmd.table} 테이블이 없습니다")
-        columns = [name for name, _ in self.schema[cmd.table]]
+    def _run(self, stmt):
+        if isinstance(stmt, Select) and self._is_id_lookup(stmt):
+            return self._select_by_id(stmt)
+        result = self.executor.execute(stmt)
+        if isinstance(stmt, Select):
+            return {"type": "select", "columns": list(result.columns),
+                    "rows": [list(row) for row in result.rows], "used_index": False}
+        return {"type": "insert", "id": result.rows[0][0]}
 
-        if isinstance(cmd, Insert):
-            values = self._arrange(columns, cmd)          # 검사 먼저. 실패하면 번호는 그대로
-            new_id = self.next_id[cmd.table]
-            offset = self.storage.append(cmd.table, [new_id] + values)
-            self.next_id[cmd.table] += 1                  # 파일에 쓴 뒤에 올림
-            self.index[cmd.table].insert(new_id, offset)
-            return {"type": "insert", "id": new_id}
+    @staticmethod
+    def _is_id_lookup(stmt):
+        where = stmt.where
+        return where is not None and where.column == "id" and where.op == "=" and type(where.value) is int
 
-        # 아직 못 하는 것은 조용히 넘기지 않고 오류로 막음 (5단계 파서가 들어와도 틀린 결과가 안 나오게)
-        if cmd.columns != ["*"]:
-            raise ValueError("아직 SELECT * 만 처리합니다")
-        where = cmd.where
-        if where:
-            if where.op != "=":
-                raise ValueError("아직 = 조건만 처리합니다")
-            if where.column not in columns:
-                raise ValueError(f"{cmd.table} 테이블에 없는 열입니다: {where.column}")
-            i = columns.index(where.column)
-            expected = TYPES[self.schema[cmd.table][i][1]]
-            if not isinstance(where.value, expected):
-                raise ValueError(f"{where.column} 열은 {self.schema[cmd.table][i][1]} 값과 비교해야 합니다")
-
-        if where and where.column == "id":
-            offset = self.index[cmd.table].search(where.value)
-            rows = [] if offset is None else [self.storage.read_at(cmd.table, offset)]
-            return {"type": "select", "columns": columns, "rows": rows, "used_index": True}
-
-        rows = [row for _, row in self.storage.scan(cmd.table) if not where or row[i] == where.value]
-        return {"type": "select", "columns": columns, "rows": rows, "used_index": False}
-
-    def _arrange(self, columns, cmd):
-        """값을 schema.json의 열 순서(id 제외)에 맞춰 배치한다."""
-        names = columns[1:]                       # id는 엔진이 붙이므로 뺌
-        given = cmd.columns or names              # 열 이름을 생략하면 schema 순서 그대로
-        if len(given) != len(cmd.values):
-            raise ValueError("열 수와 값 수가 다릅니다")
-        if columns[0] in given:
-            raise ValueError(f"{columns[0]}는 자동으로 붙으므로 직접 넣을 수 없습니다")
-        if len(set(given)) != len(given):
-            raise ValueError("같은 열이 두 번 있습니다")
-        unknown = set(given) - set(names)
-        if unknown:
-            raise ValueError(f"{cmd.table} 테이블에 없는 열입니다: {', '.join(sorted(unknown))}")
-        missing = set(names) - set(given)
-        if missing:
-            raise ValueError(f"빠진 열이 있습니다: {', '.join(sorted(missing))}")
-        by_name = dict(zip(given, cmd.values))
-        return [by_name[name] for name in names]
+    def _select_by_id(self, stmt):
+        """WHERE id = 숫자: B+ 트리로 위치를 찾아 그 한 줄만 읽는다."""
+        table = self.catalog.table(stmt.table)                         # 없는 테이블이면 TableNotFoundError
+        names = table.column_names if stmt.columns is None else stmt.columns
+        picks = [table.column_index(name) for name in names]           # 없는 열이면 ColumnNotFoundError
+        offset = self.index[stmt.table].search(stmt.where.value)
+        rows = [] if offset is None else [self.storage.read_at(stmt.table, offset)]
+        return {"type": "select", "columns": list(names),
+                "rows": [[row[i] for i in picks] for row in rows], "used_index": True}
 
     def close(self):
-        pass
+        self.storage.close()

@@ -271,7 +271,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if results and results[-1]["type"] == "error":
             done = results[:-1]                   # 실패 전까지 실행된(이미 저장된) 문장
-            message = f"{len(done) + 1}번째 문장: {results[-1]['message']}"
+            if results[-1].get("stage") == "parse":   # 문법 오류는 문장 전체를 거절 (몇 번째 문장인지는 메시지의 줄:칸에)
+                message = results[-1]["message"]
+            else:
+                message = f"{len(done) + 1}번째 문장: {results[-1]['message']}"
             self._send(400, error_body("bad_sql", message, results=done))
             return
         self._send(200, {"results": results})

@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def test_load_from_repo_schema_file():
     catalog = Catalog.load(REPO_ROOT / "data" / "schema.json")
-    assert catalog.table_names == ("students",)
+    assert {"users", "students"} <= set(catalog.table_names)   # users: 서버·확인 스크립트, students: 예제
 
 
 def test_table_columns(catalog):
