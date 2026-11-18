@@ -15,6 +15,15 @@ python -m minidb q.sql --data-dir /tmp/mydb --schema data/schema.json
 
 종료 코드: 0 성공, 1 입력 문제(파일 없음, 문법 오류), 2 실행 문제(카탈로그, 없는 테이블, 타입 불일치). 결과는 표준 출력, 오류는 표준 에러로 나간다.
 
+## B+ 트리 인덱스 (Phase 2)
+
+`WHERE id = 값` 조회는 메모리의 B+ 트리로 행의 파일 위치를 찾아 그 한 줄만 읽는다. 그 외 조건은 전체 스캔이다. 트리는 실행할 때마다 파일에서 다시 만든다. 자세한 내용은 [docs/phase2.md](docs/phase2.md).
+
+```sh
+python bench/run_bench.py 10000 100000     # id(인덱스) vs name(전체 스캔) 조회 시간 비교
+python bench/run_bench.py                  # 1만, 10만, 100만 건 (100만 건은 약 1분, 메모리 약 1.7GB)
+```
+
 ## 지원 SQL
 
 ```sql

@@ -6,15 +6,21 @@
   - 절차: 어떤 순서로 저장소를 부를까.
 
 실행기는 SQL 문자열도, 파일 포맷도 모른다.
+
+Phase 2 (7~9단계, docs/phase2.md): 테이블마다 B+ 트리(id -> 오프셋)를 메모리에 둔다.
+  - 테이블을 처음 쓸 때 한 번 scan 하며 최대 id 와 트리를 함께 만든다. (재시작 복구)
+  - INSERT 는 파일에 쓴 뒤 돌려받은 오프셋을 트리에 등록한다.
+  - SELECT 는 조건이 `id = 값` 이면 트리로 오프셋을 찾아 그 행만 읽고, 아니면 전체 스캔한다.
 """
 
 from __future__ import annotations
 
 import operator
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 
 from minidb.ast import Condition, Insert, Literal, Select, Statement
+from minidb.bptree import BPlusTree
 from minidb.catalog import ID_COLUMN, INT, TEXT, Catalog, Column, Table
 from minidb.errors import ExecutionError, TypeMismatchError
 from minidb.storage import Row, Storage
@@ -22,10 +28,15 @@ from minidb.storage import Row, Storage
 
 @dataclass(frozen=True)
 class QueryResult:
-    """모든 문장의 결과. SELECT 는 요청한 컬럼과 행, INSERT 는 ("id",) 와 부여된 id 한 행."""
+    """모든 문장의 결과. SELECT 는 요청한 컬럼과 행, INSERT 는 ("id",) 와 부여된 id 한 행.
+
+    used_index: SELECT 가 B+ 트리로 행을 찾았는지. 결과 '내용' 이 아니라 '경로' 정보라서
+    비교(==)에서는 뺀다. 그래야 인덱스로 찾든 스캔으로 찾든 같은 행이면 같은 결과다.
+    """
 
     columns: tuple[str, ...]
     rows: tuple[Row, ...]
+    used_index: bool = field(default=False, compare=False)
 
     @property
     def rowcount(self) -> int:
@@ -59,8 +70,9 @@ class Executor:
     def __init__(self, catalog: Catalog, storage: Storage):
         self.catalog = catalog
         self.storage = storage
-        # 테이블별 다음 id. 테이블을 처음 사용할 때 한 번 scan 해서 채운다.
+        # 테이블별 다음 id 와 B+ 트리. 테이블을 처음 사용할 때 _load 가 한 번 scan 해서 채운다.
         self._next_ids: dict[str, int] = {}
+        self._indexes: dict[str, BPlusTree] = {}
 
     # --- 진입점 -------------------------------------------------------------
 
@@ -77,9 +89,13 @@ class Executor:
         table = self.catalog.table(stmt.table)
         user_values = self._resolve_insert_values(table, stmt)  # 검증은 여기서 전부 끝난다
 
-        new_id = self._next_id(table)
+        index = self._load(table)
+        new_id = self._next_ids[table.name]
         row: Row = (new_id, *user_values)  # 스키마 순서. 사용자가 쓴 순서는 사라진다.
-        self.storage.table(table.name).append(row)
+        offset = self.storage.table(table.name).append(row)
+        # 파일에 쓴 뒤에 번호를 올리고 트리에 등록한다. 쓰기가 실패하면 번호도 트리도 그대로다.
+        self._next_ids[table.name] = new_id + 1
+        index.insert(new_id, offset)
         return QueryResult(columns=(ID_COLUMN,), rows=((new_id,),))
 
     def _resolve_insert_values(self, table: Table, stmt: Insert) -> tuple[Literal, ...]:
@@ -112,16 +128,22 @@ class Executor:
 
         return tuple(given[c] for c in table.user_columns)
 
-    def _next_id(self, table: Table) -> int:
-        """테이블을 처음 건드릴 때 한 번 scan 해 최대 id 를 찾고, 이후에는 카운터만 올린다."""
-        if table.name not in self._next_ids:
+    def _load(self, table: Table) -> BPlusTree:
+        """테이블을 처음 건드릴 때 한 번 scan 해 최대 id 와 B+ 트리를 함께 만든다.
+
+        트리는 메모리에만 있으므로 실행기를 새로 만들 때마다(= CLI 를 실행할 때마다) 다시 만든다.
+        INSERT 든 SELECT 든 먼저 오는 쪽이 부른다. 이후에는 만들어 둔 것을 돌려준다.
+        """
+        if table.name not in self._indexes:
+            index = BPlusTree()
             max_id = 0
-            for _offset, row in self.storage.table(table.name).scan():
-                max_id = max(max_id, int(row[0]))
+            for offset, row in self.storage.table(table.name).scan():
+                row_id = int(row[0])
+                index.insert(row_id, offset)
+                max_id = max(max_id, row_id)
+            self._indexes[table.name] = index
             self._next_ids[table.name] = max_id + 1
-        new_id = self._next_ids[table.name]
-        self._next_ids[table.name] = new_id + 1
-        return new_id
+        return self._indexes[table.name]
 
     # --- SELECT -------------------------------------------------------------
 
@@ -136,15 +158,23 @@ class Executor:
             out_names = stmt.columns
         out_indexes = [table.column_index(n) for n in out_names]
 
-        predicate = self._make_predicate(table, stmt.where)
+        predicate = self._make_predicate(table, stmt.where)  # 컬럼, 타입 검증은 경로와 무관하게 먼저
+        table_file = self.storage.table(table.name)
 
-        # 전체 스캔. 9단계에서 "조건이 id = ? 이면 인덱스로 read_at" 이 이 자리에 들어간다.
-        rows: list[Row] = []
-        for _offset, row in self.storage.table(table.name).scan():
-            if predicate(row):
-                rows.append(tuple(row[i] for i in out_indexes))
+        # 경로 선택 (9단계). 가장 단순한 옵티마이저: 조건이 `id = 값` 일 때만 인덱스를 쓴다.
+        cond = stmt.where
+        candidates: Iterable[Row]
+        if cond is not None and cond.column == ID_COLUMN and cond.op == "=":
+            offset = self._load(table).search(cond.value)
+            # 오프셋 0 (첫 행) 도 유효하므로 `is None` 으로 구별한다.
+            candidates = [] if offset is None else [table_file.read_at(offset)]
+            used_index = True
+        else:
+            candidates = (row for _offset, row in table_file.scan())  # 한 행씩 흘려보낸다
+            used_index = False
 
-        return QueryResult(columns=tuple(out_names), rows=tuple(rows))
+        rows = [tuple(row[i] for i in out_indexes) for row in candidates if predicate(row)]
+        return QueryResult(columns=tuple(out_names), rows=tuple(rows), used_index=used_index)
 
     def _make_predicate(self, table: Table, cond: Condition | None) -> Callable[[Row], bool]:
         """조건을 검증하고 '행을 받아 참/거짓을 돌려주는 함수' 를 만든다."""
