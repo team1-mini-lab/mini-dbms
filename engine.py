@@ -12,9 +12,18 @@ SQL을 읽고 검사하고 실행하고 저장하는 일, B+ 트리로 찾는 �
     요청마다 새로 만들면 매번 파일 전체를 다시 읽는다 (100만 건이면 약 1.9초).
   - 결과를 서버가 읽는 dict 모양으로 바꾼다 (접점 1).
 켤 때(__init__)는 테이블마다 B+ 트리를 미리 만들어 둔다 (예열). 첫 요청이 쓰기 lock을 오래 잡지 않게.
+
+시연용 (execute(..., with_stats=True), 서버가 씀):
+  - use_index=False: id 조건이어도 B+ 트리를 쓰지 않고 전체 스캔 (인덱스 효과 비교)
+  - SELECT 결과마다 rows_scanned(읽어서 비교한 행 수), elapsed_ms(실행기 안에서 걸린 시간)
+  - 요청마다 lock 종류(read/write)와 lock을 기다린 시간(wait_ms)
+  - read_only=True로 켜면 INSERT가 있는 SQL은 아무 문장도 실행하지 않고 거절한다.
+    같은 데이터 폴더를 여러 서버 프로세스가 같이 볼 때 쓴다. B+ 트리와 다음 id가 프로세스마다
+    따로 메모리에 있어서, 한쪽이 INSERT하면 다른 쪽은 그 행을 모른 채 같은 id를 또 준다.
 """
 import contextlib
 import threading
+import time
 from pathlib import Path
 
 from minidb.ast import Select
@@ -77,9 +86,14 @@ class ReadWriteLock:
             return {"readers": self._readers, "writer": self._writer, "writers_waiting": self._writers_waiting}
 
 
+def _ms(seconds):
+    return round(seconds * 1000, 3)
+
+
 class Engine:
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, read_only=False):
         self._lock = ReadWriteLock()    # Phase 3(16단계): SELECT는 self._lock.read(), INSERT는 with self._lock
+        self.read_only = read_only
         schema_path = Path(data_dir) / "schema.json"
         if not schema_path.exists():    # 서버가 "데이터 폴더를 열 수 없습니다"로 알려 주게 OSError로
             raise FileNotFoundError(f"스키마 파일이 없습니다: {schema_path}")
@@ -95,7 +109,7 @@ class Engine:
         for name in self.catalog.table_names:
             self.executor.execute(parse(f"SELECT id FROM {name} WHERE id = 0;")[0])
 
-    def execute(self, sql, stop_on_error=True):
+    def execute(self, sql, stop_on_error=True, use_index=True, with_stats=False):
         """SQL 전체를 해석하고, 문장마다 실행해 결과 dict 목록을 돌려준다.
 
         - 문법 오류: 아무 문장도 실행하지 않는다 (minidb 설계, step02).
@@ -104,21 +118,35 @@ class Engine:
 
         해석(parse)은 공유 상태를 건드리지 않으므로 lock 밖에서 한다.
         해석한 문장이 전부 SELECT면 읽기 lock, 하나라도 INSERT가 있으면 쓰기 lock 안에서 실행한다.
+
+        with_stats=True (서버가 씀): SELECT 결과에 rows_scanned·elapsed_ms를 붙이고,
+        (결과 목록, {"mode": "read" | "write", "wait_ms": lock을 기다린 시간}) 둘을 돌려준다.
+        SQL이 하나도 실행되지 않은 경우(문법 오류, 읽기 전용 거절)는 lock 정보가 None.
         """
+        results, lock_info = self._execute(sql, stop_on_error, use_index, with_stats)
+        return (results, lock_info) if with_stats else results
+
+    def _execute(self, sql, stop_on_error, use_index, with_stats):
         try:
             statements = parse(sql)
         except MiniDBError as e:
             return [{"type": "error", "stage": "parse",
-                     "message": f"문법 오류라 아무 문장도 실행하지 않았습니다: {e}"}]
-        read_only = all(isinstance(stmt, Select) for stmt in statements)
-        with self._lock.read() if read_only else self._lock:
-            return self._run_all(statements, stop_on_error)
+                     "message": f"문법 오류라 아무 문장도 실행하지 않았습니다: {e}"}], None
+        select_only = all(isinstance(stmt, Select) for stmt in statements)
+        if self.read_only and not select_only:
+            return [{"type": "error", "stage": "read_only",
+                     "message": "읽기 전용 서버라 INSERT가 있는 요청은 아무 문장도 실행하지 않았습니다"}], None
+        lock = self._lock.read() if select_only else self._lock
+        asked = time.perf_counter()
+        with lock:
+            lock_info = {"mode": "read" if select_only else "write", "wait_ms": _ms(time.perf_counter() - asked)}
+            return self._run_all(statements, stop_on_error, use_index, with_stats), lock_info
 
-    def _run_all(self, statements, stop_on_error):
+    def _run_all(self, statements, stop_on_error, use_index, with_stats):
         results = []
         for stmt in statements:
             try:
-                results.append(self._run(stmt))
+                results.append(self._run(stmt, use_index, with_stats))
             except StorageError:        # 손님이 고칠 수 없는 데이터 문제 → 위로 → 500
                 raise
             except MiniDBError as e:    # SQL이 틀림 → 결과에 담음 → 서버는 400
@@ -127,12 +155,22 @@ class Engine:
                     break
         return results
 
-    def _run(self, stmt):
-        result = self.executor.execute(stmt)
+    def _run(self, stmt, use_index=True, with_stats=False):
+        started = time.perf_counter()
+        result = self.executor.execute(stmt, use_index=use_index)
+        elapsed = time.perf_counter() - started   # 실행기 안에서 걸린 시간만 (lock 대기·해석·HTTP 제외)
         if isinstance(stmt, Select):
-            return {"type": "select", "columns": list(result.columns),
-                    "rows": [list(row) for row in result.rows], "used_index": result.used_index}
+            out = {"type": "select", "columns": list(result.columns),
+                   "rows": [list(row) for row in result.rows], "used_index": result.used_index}
+            if with_stats:
+                out["rows_scanned"] = result.rows_scanned
+                out["elapsed_ms"] = _ms(elapsed)
+            return out
         return {"type": "insert", "id": result.rows[0][0]}
+
+    def lock_stats(self):
+        """GET /stats용: 지금 SQL을 실행 중인 읽기 수, 쓰기 여부, 기다리는 쓰기 수."""
+        return self._lock.stats()
 
     def close(self):
         self.storage.close()

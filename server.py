@@ -10,6 +10,7 @@
 """
 import argparse
 import json
+import os
 import queue
 import socket
 import sys
@@ -103,11 +104,13 @@ class Handler(BaseHTTPRequestHandler):
         raw = self._read_body()
         if raw is None:                           # 이미 오류로 답함
             return
-        sql = self._parse_sql(raw)
-        if sql is None:                           # 이미 오류로 답함
+        parsed = self._parse_sql(raw)
+        if parsed is None:                        # 이미 오류로 답함
             return
+        sql, use_index = parsed
         try:
-            results = self.server.engine.execute(sql, stop_on_error=True)   # 첫 오류에서 멈춤 (D30)
+            results, lock_info = self.server.engine.execute(   # 첫 오류에서 멈춤 (D30)
+                sql, stop_on_error=True, use_index=use_index, with_stats=True)
         except Exception:
             # Phase 3(17단계, D39): SQL이 틀린 게 아니라 서버가 고장. 자세한 내용은 서버 로그에만
             traceback.print_exc()
@@ -115,13 +118,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if results and results[-1]["type"] == "error":
             done = results[:-1]                   # 실패 전까지 실행된(이미 저장된) 문장
-            if results[-1].get("stage") == "parse":   # 문법 오류는 문장 전체를 거절 (몇 번째 문장인지는 메시지의 줄:칸에)
+            # 문법 오류·읽기 전용 거절은 문장 전체를 거절 (문법 오류의 위치는 메시지의 줄:칸에)
+            if results[-1].get("stage") in ("parse", "read_only"):
                 message = results[-1]["message"]
             else:
                 message = f"{len(done) + 1}번째 문장: {results[-1]['message']}"
-            self._send(400, error_body("bad_sql", message, results=done))
+            self._send(400, error_body("bad_sql", message, results=done, lock=lock_info))
             return
-        self._send(200, {"results": results})
+        self._send(200, {"results": results, "lock": lock_info})
 
     def _read_body(self):
         """본문을 Content-Length만큼 읽는다. 숫자가 아니면 400으로 답하고 None. (server_guard.py가 검사를 더함)"""
@@ -133,14 +137,20 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length)
 
     def _parse_sql(self, raw):
-        """본문 JSON에서 sql 문자열을 꺼낸다. 틀리면 400으로 답하고 None."""
+        """본문 JSON에서 (sql 문자열, use_index)를 꺼낸다. 틀리면 400으로 답하고 None.
+
+        use_index는 선택. 없으면 true. false면 id 조건이어도 B+ 트리를 쓰지 않는다 (시연용).
+        """
         try:
             body = json.loads(raw)
             if not isinstance(body, dict) or "sql" not in body:
                 raise ValueError('본문은 {"sql": "..."} 모양이어야 합니다')
             if not isinstance(body["sql"], str):
                 raise ValueError("sql은 문자열이어야 합니다")
-            return body["sql"]
+            use_index = body.get("use_index", True)
+            if not isinstance(use_index, bool):
+                raise ValueError("use_index는 true 또는 false여야 합니다")
+            return body["sql"], use_index
         except (ValueError, RecursionError) as e:   # JSON 오류도 ValueError. RecursionError는 [[[[... 처럼 아주 깊은 JSON
             self._error(400, "bad_request", f"본문을 읽을 수 없습니다: {e}")
             return None
@@ -241,7 +251,8 @@ class PooledHTTPServer(HTTPServer):
         with self._stats_lock:
             return {"workers": len(self.workers), "busy": self._busy,
                     "queue": {"waiting": self.jobs.qsize(), "max": self.jobs.maxsize},
-                    "handled": self._handled, "rejected_503": self._rejected}
+                    "handled": self._handled, "rejected_503": self._rejected,
+                    "read_only": self.engine.read_only, "lock": self.engine.lock_stats()}
 
     def _reject_busy(self, request):
         """큐가 꽉 찼을 때: 503 JSON을 보내고, 클라이언트가 읽을 수 있게 닫는다."""
@@ -277,27 +288,41 @@ def positive_int(text):
     return value
 
 
-def parse_arguments():
+def parse_arguments(argv=None):
+    """실행 옵션. 인자가 없으면 환경 변수(PORT, WORKERS, QUEUE, DATA_DIR)를, 그것도 없으면 기본값을 쓴다.
+
+    우선순위: 명령줄 인자 > 환경 변수 > 기본값.
+    argparse는 문자열 기본값에도 type을 적용하므로, 환경 변수 값이 틀리면 인자가 틀린 것과 같은 오류가 난다.
+    """
+    env = os.environ.get
     parser = argparse.ArgumentParser(description="미니 DBMS API 서버")
-    parser.add_argument("--host", default="localhost", help="받을 주소 (기본 localhost. 배포할 때는 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=8000, help="받을 포트 (기본 8000)")
-    parser.add_argument("--workers", type=positive_int, default=4, help="미리 만들어 둘 스레드 수 (기본 4)")
-    parser.add_argument("--queue", type=positive_int, default=16, help="기다릴 수 있는 요청 수 (기본 16)")
-    return parser.parse_args()
+    parser.add_argument("--host", default=env("HOST", "localhost"), help="받을 주소 (기본 localhost. 배포할 때는 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=env("PORT", "8000"), help="받을 포트 (환경 변수 PORT, 기본 8000)")
+    parser.add_argument("--workers", type=positive_int, default=env("WORKERS", "4"),
+                        help="미리 만들어 둘 스레드 수 (환경 변수 WORKERS, 기본 4)")
+    parser.add_argument("--queue", type=positive_int, default=env("QUEUE", "16"),
+                        help="기다릴 수 있는 요청 수 (환경 변수 QUEUE, 기본 16)")
+    parser.add_argument("--data-dir", default=env("DATA_DIR", "data"),
+                        help="schema.json과 테이블 파일이 있는 폴더 (환경 변수 DATA_DIR, 기본 data)")
+    parser.add_argument("--read-only", action="store_true", default=env("READ_ONLY", "") not in ("", "0", "false"),
+                        help="INSERT를 거절한다. 같은 데이터 폴더를 서버 여러 개가 같이 볼 때 (환경 변수 READ_ONLY=1)")
+    return parser.parse_args(argv)
 
 
 def main(server_class=PooledHTTPServer, handler_class=Handler):
     args = parse_arguments()
     try:
-        engine = Engine("data")
+        engine = Engine(args.data_dir, read_only=args.read_only)
     except OSError as e:                      # Phase 3(17단계): data/ 폴더가 없는 곳에서 켠 경우
-        sys.exit(f"데이터 폴더를 열 수 없습니다 (저장소 맨 위 폴더에서 실행하세요): {e}")
+        sys.exit(f"데이터 폴더를 열 수 없습니다 (저장소 맨 위 폴더에서 실행하거나 --data-dir을 확인하세요): {e}")
     try:
         server = server_class((args.host, args.port), handler_class, engine, args.workers, args.queue)
     except (OSError, OverflowError) as e:     # Phase 3(17단계): 포트가 이미 쓰임, 없는 포트 번호 등
         sys.exit(f"서버를 켤 수 없습니다 (포트 {args.port}): {e}")
     port = server.server_address[1]           # --port 0이면 운영체제가 고른 빈 포트
-    print(f"http://{args.host}:{port} 에서 POST /query 를 기다립니다 (스레드 {args.workers}개, 큐 {args.queue}칸)", flush=True)
+    mode = ", 읽기 전용" if args.read_only else ""
+    print(f"http://{args.host}:{port} 에서 POST /query 를 기다립니다 "
+          f"(스레드 {args.workers}개, 큐 {args.queue}칸, 데이터 {args.data_dir}{mode})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
