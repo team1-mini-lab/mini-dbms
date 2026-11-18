@@ -1,0 +1,12 @@
+# Render 배포 설정 (Phase 3 시연용). 무료판은 15분 동안 요청이 없으면 잠들고, 잠들거나 다시 배포하면 data/ 파일이 지워짐
+services:
+  - type: web
+    name: mini-dbms
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: python3 --version
+    startCommand: python3 server.py --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHONUNBUFFERED      # 로그(어느 스레드가 처리했는지)가 Render 화면에 바로 보이게
+        value: "1"
