@@ -24,6 +24,30 @@ python bench/run_bench.py 10000 100000     # id(인덱스) vs name(전체 스캔
 python bench/run_bench.py                  # 1만, 10만, 100만 건 (100만 건은 약 1분, 메모리 약 1.7GB)
 ```
 
+## API 서버 (Phase 3)
+
+다른 프로그램이 HTTP로 SQL을 보내면 엔진이 실행해 JSON으로 답한다. 자세한 내용은 [docs/eungi/](docs/eungi/) (STEP15 Thread Pool, STEP16 lock, STEP17 오류 응답).
+
+```sh
+python3 server.py                          # http://localhost:8000 (브라우저로 열면 테스트 페이지)
+curl -s -X POST localhost:8000/query -d '{"sql": "SELECT * FROM users WHERE id > 1;"}'
+```
+
+```
+HTTP → 받는 스레드 → 대기열(16칸, 차면 503) → 일하는 스레드 4개 → 🔒 engine.execute → minidb 실행기 → B+ 트리 / 파일
+```
+
+- **Thread Pool:** 요청을 읽고 응답을 쓰는 일은 스레드 4개가 동시에 한다. 느린 연결 3개가 스레드를 붙잡아도 다른 요청은 처리된다. 5초 안에 요청을 다 보내지 않으면 408.
+- **lock:** minidb 실행기는 스레드 안전하지 않아서(다음 id, B+ 트리, 파일 append), 엔진 입구(`execute`) 하나를 lock으로 묶어 한 번에 한 요청만 실행한다. 실행기는 서버 전체가 하나를 같이 쓴다.
+- **오류:** 모두 `{"error": {"code", "message"}}` 모양. SQL이 틀리면 400 `bad_sql`(앞 문장 결과 포함), 파일 손상 등 서버 문제는 500.
+
+```sh
+python3 checks/check_concurrency.py        # lock 끔 → id 중복, lock 켬 → 1~100
+python3 checks/check_threadpool.py         # 여러 스레드가 나눠 처리, 대기열이 차면 503
+python3 checks/check_errors.py             # 오류 응답 모양 (400·404·405·408·413·500·503)
+python3 checks/check_guard.py              # 엣지 방어 (느린 연결, Content-Length, 끄기)
+```
+
 ## 지원 SQL
 
 ```sql
@@ -41,6 +65,6 @@ SELECT name FROM students WHERE name = 'Kim';
 
 ## 한계 (의도된 범위 밖)
 
-같은 데이터 폴더에 대해 한 번에 한 프로세스만 실행한다고 가정한다. CLI 두 개를 동시에 실행하면 같은 id 가 부여될 수 있다. 이 문제는 Phase 3 서버(엔진을 가진 프로세스 하나)에서 다룬다.
+같은 데이터 폴더에 대해 한 번에 한 프로세스만 실행한다고 가정한다. CLI 두 개를 동시에 실행하면 같은 id 가 부여될 수 있다. Phase 3 서버는 엔진을 가진 프로세스 하나가 요청을 받고 lock으로 줄 세워 이 문제를 막는다. 다만 서버가 켜진 채로 같은 폴더에 CLI로 쓰는 것은 막지 못한다.
 
 `CREATE TABLE`, `UPDATE`, `DELETE`, NULL, `AND`/`OR`, `ORDER BY`, `LIMIT`, JOIN, 트랜잭션, WAL. 쓰다 만 마지막 행은 다음 실행 때 잘라 낸다. 표 출력에서 한글 등 전각 문자의 폭은 맞추지 않는다.
