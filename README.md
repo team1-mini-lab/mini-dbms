@@ -92,28 +92,19 @@ time curl -s -X POST localhost:8000/query -d '{"sql": "SELECT * FROM users WHERE
 ### Phase 1: 파일 모양은 왜 SQL 처리기 한 곳만 아나요?
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph BEFORE["전: 코드마다 파일 모양을 각자 앎"]
         direction LR
-        O1["order.py<br>쿠폰 열 추가<br>3,park,모니터,WELCOME,300000"]
-        F1[("orders.csv<br>열 4개였다가 5개로")]
-        R1["report.py<br>열 4개라고 믿고 split<br>→ 멈춤"]
-        D1["delivery.py<br>열 4개라고 믿고 split<br>→ 멈춤"]
-        O1 -->|직접 씀| F1
-        F1 -->|직접 읽음| R1
-        F1 -->|직접 읽음| D1
+        O1["order.py<br>쿠폰 열 추가"] -->|직접 씀| F1[("orders.csv<br>열 4개 → 5개")]
+        F1 -->|직접 읽음| R1["report.py<br>❌ 멈춤"]
+        F1 -->|직접 읽음| D1["delivery.py<br>❌ 멈춤"]
     end
     subgraph AFTER["후: 파일 모양은 SQL 처리기만 앎"]
         direction LR
-        O2["order.py<br>INSERT INTO orders<br>(user, product, coupon, price) ..."]
-        R2["report.py<br>SELECT price FROM orders<br>고칠 것 없음"]
-        D2["delivery.py<br>SELECT * FROM orders WHERE user = 'kim'<br>고칠 것 없음"]
-        P["SQL 처리기<br>스키마로 열 이름 → 칸 번호<br>쓰기 전에 열·타입 확인"]
-        F2[("orders.tbl")]
-        O2 -->|열 이름으로 요청| P
-        R2 -->|열 이름으로 요청| P
-        D2 -->|열 이름으로 요청| P
-        P -->|혼자 읽고 씀| F2
+        O2["order.py"] -->|열 이름으로| P["SQL 처리기<br>열 이름 → 칸 번호"]
+        R2["report.py<br>✅ 그대로"] -->|열 이름으로| P
+        D2["delivery.py<br>✅ 그대로"] -->|열 이름으로| P
+        P -->|혼자 읽고 씀| F2[("orders.tbl")]
     end
     BEFORE ~~~ AFTER
 ```
@@ -122,7 +113,26 @@ flowchart LR
 
 ### Phase 2: 왜 해시 테이블이 아니라 B+ 트리인가요?
 
-![id가 2~5인 행을 찾을 때, 해시 테이블은 칸을 전부 확인하고 B+ 트리는 2를 찾은 뒤 옆 노드로 따라감](docs/images/phase2_why_bptree.png)
+`id`가 2~5인 행을 찾을 때:
+
+```mermaid
+flowchart TB
+    subgraph H["해시 테이블 (mini-redis): 2, 3, 4, 5가 칸마다 흩어져 있어 칸을 전부 확인"]
+        direction LR
+        h0["칸 0<br>4 · 8"] ~~~ h1["칸 1<br>1 · 5"] ~~~ h2["칸 2<br>2 · 6"] ~~~ h3["칸 3<br>3 · 7"]
+    end
+    subgraph T["B+ 트리 (mini-dbms): 2를 찾아 내려간 뒤 옆으로 따라가 5에서 멈춤"]
+        direction TB
+        R["3 | 5 | 7"]
+        subgraph LEAF["맨 아래 노드(잎)끼리 이어져 있음"]
+            direction LR
+            l1["1 · 2"] ==> l2["3 · 4"] ==> l3["5 · 6"] -.-> l4["7 · 8<br>안 봄"]
+        end
+        R ==>|"① 2를 찾아 내려감"| LEAF
+    end
+    H ~~~ T
+```
+
 
 - **해시 테이블:** 키 하나를 찾는 데는 가장 빠르지만 순서를 모릅니다. DB는 `id`가 2~5인 것처럼 범위를 물어서, 맨 아래 노드끼리 이어진 B+ 트리를 골랐습니다. `WHERE id > 1`, `id <= 5`도 B+ 트리의 `range_search`로 찾습니다.
 - **이진 탐색 트리:** 순서는 알지만, id가 1, 2, 3… 순서대로 들어오면 한쪽으로만 길어져 결국 줄 하나처럼 됩니다. B+ 트리는 노드가 차면 나뉘며 균형을 유지해서 100만 건에서도 높이가 5입니다.
@@ -135,47 +145,37 @@ flowchart LR
 - **엔진** (`engine.py`): 요청 **하나**(SQL 글자 한 덩어리)를 받아 lock을 잡고, 파싱해서 나온 문장들을 차례로 실행기에 넘기고, 결과를 dict로 바꿔 모은 뒤 lock을 놓습니다.
 - **실행기** (`minidb/executor.py`): 파싱된 문장 **하나**를 받아 열과 타입을 확인하고, B+ 트리나 전체 스캔으로 파일을 읽거나 써서 `QueryResult`(열 이름, 행, B+ 트리를 썼는지)를 돌려줍니다.
 
-<details>
-<summary>요청 하나가 서버 → 엔진 → 파서 → 실행기 → B+ 트리 → 파일을 지나는 흐름 그림</summary>
-
 ```mermaid
 sequenceDiagram
     autonumber
-    participant S as 서버<br>server.py
-    participant E as 엔진<br>engine.py
-    participant P as 파서<br>parser.py
-    participant X as 실행기<br>executor.py
-    participant B as B+ 트리<br>bptree.py
-    participant F as 파일<br>storage.py → users.tbl
+    participant S as 서버
+    participant E as 엔진
+    participant P as 파서
+    participant X as 실행기
+    participant B as B+ 트리
+    participant F as users.tbl
 
-    S->>E: execute("INSERT ... SELECT ...")<br>SQL 글자 한 덩어리
+    S->>E: execute(SQL 덩어리)
     rect rgba(255, 200, 120, 0.25)
     Note over E,F: 🔒 lock 안: 한 번에 한 요청만
-    E->>P: parse(sql)
-    P-->>E: [Insert 객체, Select 객체]
-    Note over E: results = [ ]
-
-    E->>X: execute(Insert 객체)
-    Note right of X: 열·타입 확인<br>다음 id = 1
-    X->>F: 끝에 한 줄 쓰기 "1 현지 25"
+    E->>P: parse
+    P-->>E: [Insert, Select]
+    E->>X: Insert
+    X->>F: 끝에 한 줄 쓰기
     F-->>X: 위치 0
-    X->>B: insert(id 1, 위치 0)
-    X-->>E: QueryResult (새 id 1)
-    Note over E: dict로 바꿔 results에 추가
-
-    E->>X: execute(Select 객체)
-    X->>B: search(id 1)
+    X->>B: id 1 → 위치 0
+    X-->>E: 새 id 1
+    Note over E: dict로 바꿔 목록에 추가
+    E->>X: Select id = 1
+    X->>B: id 1 찾기
     B-->>X: 위치 0
-    X->>F: 위치 0의 한 줄 읽기
-    F-->>X: (1, "현지", 25)
-    X-->>E: QueryResult (찾은 행, B+ 트리 사용)
-    Note over E: dict로 바꿔 results에 추가
+    X->>F: 위치 0 한 줄 읽기
+    F-->>X: 1, 현지, 25
+    X-->>E: 찾은 행
+    Note over E: dict로 바꿔 목록에 추가
     end
-    E-->>S: results (dict 2개짜리 목록)
-    Note over S: json.dumps → HTTP 200 응답
+    E-->>S: 결과 목록 → JSON 응답
 ```
-
-</details>
 
 서버를 안내 데스크, 엔진을 건물의 유일한 출입문으로 나눴습니다. 서버는 SQL을 `engine.execute(sql)`에 넘기기만 하고, 엔진은 그 문에 lock을 달아 한 번에 한 요청만 들여보냅니다.
 
@@ -195,7 +195,11 @@ sequenceDiagram
 | **느린 쿼리 (id 조건)** | 실행 (lock 안) | `WHERE id = 7` | B+ 트리 | 1,364ms → 0.032ms |
 | **느린 쿼리 (id가 아닌 조건)** | 실행 (lock 안) | `WHERE name = '현지'` | **없음** (목차가 id에만 있음) | 그동안 다른 요청도 차례를 기다림 → 대기열 한도와 503으로 버팀 |
 
-![느린 연결 수와 스레드 수에 따른 빠른 요청 응답 시간](docs/images/phase3_why_4_threads.png)
+| 느린 연결 | 스레드 | 다른 요청의 응답 |
+| --- | --- | --- |
+| 3개 | 4개 | 0.7ms |
+| 4개 | 4개 | 664ms |
+| 4개 | 8개 | 0.5ms |
 
 - **스레드 4개:** 느린 연결은 스레드 하나를 붙잡습니다. 스레드가 느린 연결보다 많으면 남는 스레드가 다른 요청을 받고(0.7ms), 같으면 모두 붙잡혀 다들 기다립니다(664ms). 그래서 4개 = "느린 연결 3개까지 견딤"입니다. 더 늘려도 빨라지지 않습니다. 실행이 한 번에 하나라, 빠른 요청만 있을 때 스레드 1·4·16개가 44·70·68ms로 같았습니다.
 - **대기열 16칸:** 짧으면 거절이 많고 길면 오래 기다리므로 그 사이에서 정한 판단입니다. 재 보니 4칸과 16칸은 거의 같았습니다([D35](docs/eungi/DECISIONS.md#step15)).
@@ -216,11 +220,6 @@ python3 checks/check_guard.py                   # 엣지 방어 (느린 연결, 
 
 ### 요청이 틀리면 어디서 무엇이라고 답하나요?
 
-![요청은 관문 7개를 차례로 지나고, 걸리면 그 자리의 오류 코드로 답함](docs/images/phase3_error_gates.png)
-
-<details>
-<summary>글로 보기</summary>
-
 요청은 관문 7개를 차례로 지납니다. 답의 모양은 모두 `{"error": {"code", "message"}}` 하나입니다.
 
 | 관문 | 서버가 묻는 것 | 걸리면 |
@@ -235,7 +234,6 @@ python3 checks/check_guard.py                   # 엣지 방어 (느린 연결, 
 
 ①\~⑥은 클라이언트 쪽 문제, ⑦만 서버 쪽 문제입니다. 받는 쪽 프로그램은 `error.code` 하나만 보고 "다시 보낼지, 보여 줄지, 관리자에게 알릴지"를 정합니다.
 
-</details>
 
 예를 들어 스레드와 대기열을 모두 채우면 세 번째 요청은 바로 503을 받습니다.
 ```bash
@@ -247,6 +245,9 @@ curl -s -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'
 ## 참고
 
 ### 쓸 수 있는 SQL 문법
+
+<details>
+<summary>INSERT · SELECT · WHERE 문법과 규칙</summary>
 
 ```sql
 INSERT INTO students (name, grade) VALUES ('Kim', 3);
@@ -260,6 +261,8 @@ SELECT * FROM users WHERE id > 100;              -- id 범위 조건은 B+ 트�
 - 키워드는 대소문자 무관, 식별자는 소문자로 정규화. 문자열은 작은따옴표, 따옴표 자체는 `''`. 문장은 `;`로 끝나며 주석은 `--`.
 - `WHERE`는 `컬럼 연산자 값` 하나만. 연산자는 `=` `!=` `<` `<=` `>` `>=`.
 - 문법 오류가 하나라도 있으면 아무 문장도 실행하지 않습니다. 실행 오류가 나면 그 문장에서 멈추고, 앞 문장은 되돌리지 않습니다.
+
+</details>
 
 ### 실제 DBMS와의 차이
 
