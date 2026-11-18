@@ -164,14 +164,14 @@ sequenceDiagram
     E->>X: execute(Insert 객체)
     Note right of X: 열·타입 확인<br>다음 id = 1
     X->>F: 끝에 한 줄 쓰기 "1 현지 25"
-    F-->>X: 위치 0
-    X->>B: insert(id 1, 위치 0)
+    F-->>X: 파일 위치
+    X->>B: insert(id 1, 파일 위치)
     X-->>E: QueryResult(columns=("id",), rows=((1,),))
 
     E->>X: execute(Select 객체)
     X->>B: search(id 1)
-    B-->>X: 위치 0
-    X->>F: 위치 0의 한 줄 읽기
+    B-->>X: 파일 위치
+    X->>F: 그 파일 위치의 한 줄 읽기
     F-->>X: (1, "현지", 25)
     X-->>E: QueryResult(..., used_index=True)
 
