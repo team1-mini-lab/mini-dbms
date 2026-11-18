@@ -1,7 +1,8 @@
 """8~9단계: 실행기와 B+ 트리 연동.
 
 - 8단계: INSERT 하면 트리에 등록되고, 새 실행기(= 재시작)는 파일을 읽어 트리를 다시 만든다.
-- 9단계: `WHERE id = 값` 만 인덱스를 타고, 그 외에는 전체 스캔한다. 두 경로의 결과는 같아야 한다.
+- 9단계: `WHERE id = 값` 과 id 범위 조건(<, <=, >, >=)은 인덱스를 타고, 그 외에는 전체 스캔한다.
+  두 경로의 결과는 같아야 한다.
 """
 
 import pytest
@@ -55,8 +56,8 @@ def test_missing_id_returns_empty_via_index(seeded):
 
 
 @pytest.mark.parametrize("where", [
-    "id != 2", "id < 3", "id <= 3", "id > 1", "id >= 2",   # id 지만 = 이 아님
-    "name = 'Lee'", "grade = 3",                           # id 가 아님
+    "id != 2",                    # id 지만 거의 모든 행이 해당
+    "name = 'Lee'", "grade = 3",  # id 가 아님
 ])
 def test_other_conditions_scan(seeded, where):
     r = run(seeded, f"SELECT * FROM students WHERE {where};")
@@ -146,3 +147,64 @@ def test_failed_write_does_not_consume_id(ex, storage, monkeypatch):
     monkeypatch.setattr(tf, "append", original)
     assert run(ex, "INSERT INTO students VALUES ('Lee', 2);").rows == ((2,),)
     assert run(ex, "SELECT name FROM students WHERE id = 2;").rows == (("Lee",),)
+
+
+# --- 범위 조건 ------------------------------------------------------------------
+
+@pytest.mark.parametrize("where, ids", [
+    ("id < 3", [1, 2]),
+    ("id <= 3", [1, 2, 3]),
+    ("id > 2", [3, 4]),
+    ("id >= 2", [2, 3, 4]),
+    ("id < 1", []),             # 첫 행 앞
+    ("id > 4", []),             # 마지막 행 뒤
+    ("id <= 1", [1]),           # 오프셋 0 인 첫 행 포함
+    ("id >= 4", [4]),
+    ("id < -5", []),
+    ("id > 1000", []),
+])
+def test_id_range_uses_index(seeded, where, ids):
+    r = run(seeded, f"SELECT id FROM students WHERE {where};")
+    assert r.rows == tuple((i,) for i in ids)
+    assert r.used_index is True
+
+
+@pytest.mark.parametrize("op", ["<", "<=", ">", ">="])
+@pytest.mark.parametrize("value", [0, 1, 2, 3, 4, 5])
+def test_range_index_matches_scan(seeded, storage, op, value):
+    by_index = run(seeded, f"SELECT * FROM students WHERE id {op} {value};")
+    # 같은 조건을 전체 스캔으로 직접 계산
+    import operator as o
+    cmp = {"<": o.lt, "<=": o.le, ">": o.gt, ">=": o.ge}[op]
+    expected = tuple(row for _off, row in storage.table("students").scan() if cmp(row[0], value))
+    assert by_index.used_index
+    assert by_index.rows == expected
+
+
+def test_range_lookup_does_not_scan(seeded, storage, monkeypatch):
+    run(seeded, "SELECT * FROM students WHERE id = 1;")  # 트리는 이미 만들어져 있다
+    tf = storage.table("students")
+    monkeypatch.setattr(tf, "scan", lambda: pytest.fail("인덱스 경로에서 scan 을 불렀다"))
+    assert run(seeded, "SELECT name FROM students WHERE id >= 3;").rows == (("Park",), ("Choi",))
+
+
+def test_range_path_still_type_checks(seeded):
+    from minidb.errors import TypeMismatchError
+    with pytest.raises(TypeMismatchError):
+        run(seeded, "SELECT * FROM students WHERE id < 'abc';")
+
+
+def test_range_keeps_file_order_with_unsorted_ids(tmp_path, catalog):
+    # 파일을 직접 편집해 id 가 파일 순서와 다를 때도 스캔과 같은 순서(파일 순서)로 낸다.
+    (tmp_path / "students.tbl").write_bytes(b"1\tKim\t3\n9\tLee\t2\n5\tPark\t1\n")
+    with Storage(tmp_path, catalog) as st:
+        ex = Executor(catalog, st)
+        r = run(ex, "SELECT id FROM students WHERE id > 1;")
+        assert r.used_index
+        assert r.rows == ((9,), (5,))
+
+
+def test_range_after_restart(catalog, storage, seeded):
+    fresh = Executor(catalog, storage)  # 트리 없이 시작
+    r = run(fresh, "SELECT id FROM students WHERE id > 2;")
+    assert r.used_index and r.rows == ((3,), (4,))
