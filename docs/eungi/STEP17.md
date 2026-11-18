@@ -171,7 +171,9 @@ HTTP_ERRORS = {
 ### ④ 서버 고장은 500 · `engine.execute`, `Handler.do_POST` ([D39](./DECISIONS.md#step17), [D47](./DECISIONS.md#step17))
 
 ```python
-            except ValueError as e:                       # Phase 3(17단계): SQL이 틀린 것만 결과에 담음. 그 밖(디스크 오류 등)은 위로 → 서버는 500
+            except StorageError:        # 손님이 고칠 수 없는 데이터 문제 → 위로 → 500
+                raise
+            except MiniDBError as e:    # SQL이 틀림 → 결과에 담음 → 서버는 400
                 results.append({"type": "error", "message": str(e)})
 ```
 
@@ -185,18 +187,20 @@ HTTP_ERRORS = {
             return
         if results and results[-1]["type"] == "error":
             done = results[:-1]                   # 실패 전까지 실행된(이미 저장된) 문장
-            message = f"{len(done) + 1}번째 문장: {results[-1]['message']}"
+            if results[-1].get("stage") == "parse":   # 문법 오류는 문장 전체를 거절 (몇 번째인지는 메시지의 줄:칸에)
+                message = results[-1]["message"]
+            else:
+                message = f"{len(done) + 1}번째 문장: {results[-1]['message']}"
             self._send(400, error_body("bad_sql", message, results=done))
             return
         self._send(200, {"results": results})
 ```
 
-- **먼저 알아 둘 것**: 파이썬에서 문제가 생기면 **예외**가 납니다. 예외는 종류가 있습니다. `ValueError`는 "값이 잘못됐다", `OSError`는 "파일이나 네트워크에 문제가 있다" 같은 식입니다. `except Exception`은 "종류 상관없이 다 받는다", `except ValueError`는 "`ValueError`만 받고 나머지는 위(나를 부른 쪽)로 넘긴다"는 뜻입니다. 우리 팀은 **"SQL이 틀렸다"는 `ValueError`로 알리기로** 약속했습니다.
+- **먼저 알아 둘 것**: 파이썬에서 문제가 생기면 **예외**가 납니다. 예외는 종류가 있습니다. `ValueError`는 "값이 잘못됐다", `OSError`는 "파일이나 네트워크에 문제가 있다" 같은 식입니다. `except Exception`은 "종류 상관없이 다 받는다", `except ValueError`는 "`ValueError`만 받고 나머지는 위(나를 부른 쪽)로 넘긴다"는 뜻입니다. minidb는 **"SQL이 틀렸다"를 `MiniDBError`(그 아래 `ParseError`, `SchemaError`, `TypeMismatchError`, `ExecutionError`)로** 알립니다.
 - **무엇이 문제였나**: 엔진은 `except Exception`으로 **모든** 오류를 "그 문장이 틀렸다"로 받았습니다. 그래서 디스크가 꽉 찬 것 같은 서버 고장도 400 `bad_sql`로 나갔고, 오류 문장에 들어 있던 **파일 경로**가 응답에 그대로 보였습니다. 서버의 `except Exception → 500`은 실제로는 거의 닿지 않았습니다 (교차 검토에서 찾음).
-- **무엇을 바꿨나**: 엔진은 `ValueError`만 문장 오류로 담습니다. 파서와 엔진이 "SQL이 틀렸다"고 할 때는 이미 모두 `ValueError`를 냅니다. 그 밖의 예외는 엔진 밖으로 올라가고, 서버가 500 `internal`로 답합니다. 자세한 내용(트레이스백)은 `traceback.print_exc()`로 **서버 터미널에만** 찍습니다.
+- **무엇을 바꿨나**: 엔진은 `MiniDBError`만 문장 오류로 담습니다. 단, 그중 `StorageError`(테이블 파일이 깨짐)는 손님이 SQL을 고쳐도 해결되지 않는 서버 쪽 문제라 담지 않고 올려 보냅니다. 그 밖의 예외는 엔진 밖으로 올라가고, 서버가 500 `internal`로 답합니다. 자세한 내용(트레이스백)은 `traceback.print_exc()`로 **서버 터미널에만** 찍습니다.
 - lock은 `with`가 풀어 줍니다 ([STEP16](./STEP16.md)). 500 뒤에도 다음 요청은 정상으로 처리됩니다 (확인 스크립트로 확인).
-- **CLI도 바뀝니다**: CLI에서 디스크 오류가 나면 "오류 결과를 찍고 계속"이 아니라 오류를 보여 주고 멈춥니다. D9("틀린 문장이 있어도 계속")는 SQL이 틀렸을 때의 규칙이라, 디스크가 고장 났는데 계속 쓰는 것보다 멈추는 게 맞다고 봤습니다. SQL이 틀렸을 때는 지금처럼 계속하므로 D9는 그대로입니다. Phase 1(현지)에는 [HANDOFF](./HANDOFF.md)로 알렸습니다.
-- **한계**: 데이터 파일의 줄이 깨진 경우(`JSONDecodeError`)도 `ValueError`의 하위(`ValueError`를 바탕으로 만든 더 좁은 종류라서 `except ValueError`에 같이 잡힘)라서 아직 400으로 나갑니다. 깨진 줄 처리는 Phase 1(8단계)입니다.
+- **CLI는 minidb 것을 씁니다**: `python -m minidb`는 문법 오류면 종료 코드 1, 실행 오류(손상된 행 포함)면 종료 코드 2로 멈춥니다. 서버의 400(SQL 오류)과 500(서버 쪽 문제) 구분과 같은 기준입니다.
 
 ## B. 15단계 결함 수정 · [`server.py`](../../server.py)
 
@@ -487,8 +491,8 @@ worker:      꺼냄 → _watch: 5초 마감 등록 (엣지)
                 ├ _unwatch: 마감 끝 (여기부터는 시간을 안 셈)
                 ├ JSON 풀기, sql 꺼내기 ───────────────────────→ 400 bad_request (③)
                 ├ engine.execute 🔒
-                │   ├ SQL이 틀림 (ValueError) ─────────────────→ 400 bad_sql + results
-                │   └ 그 밖의 예외 ─────────────────────────────→ 500 internal (④)
+                │   ├ SQL이 틀림 (MiniDBError) ────────────────→ 400 bad_sql + results
+                │   └ 파일 손상(StorageError)·그 밖의 예외 ─────→ 500 internal (④)
                 └ 성공 ─────────────────────────────────────────→ 200 results
 ```
 
@@ -592,7 +596,7 @@ curl -s -X POST localhost:8000/query -d "{\"sql\": \"INSERT INTO users (name, ag
 - **D44** 큐가 꽉 찬 채로 꺼도 1초 안에 꺼집니다.
 - **D45** `--workers`, `--queue`는 1 이상만. 켜기에 실패하면 진짜 이유를 한 줄로 보여 줍니다.
 - **D46** 답을 보내기 전에 클라이언트가 먼저 끊으면 조용히 넘어갑니다 (엣지 방어).
-- **D47** 엔진은 `ValueError`만 문장 오류로 담고, 나머지 예외는 위로 올립니다.
+- **D47** 엔진은 `MiniDBError`(SQL 오류)만 문장 오류로 담고, `StorageError`와 나머지 예외는 위로 올립니다.
 - **D48** 엣지 케이스 방어는 `server_guard.py`에 따로 두고, `python3 server.py`로 켜면 기본으로 켜집니다.
 - **D37 (17단계에서 더함)** 받는 시간 전체 5초는 엣지 방어의 감시 스레드가 합니다.
 
@@ -602,8 +606,8 @@ curl -s -X POST localhost:8000/query -d "{\"sql\": \"INSERT INTO users (name, ag
 | --- | --- |
 | `server.py` (고침) | 오류 JSON 통일(`error_body`, `HTTP_ERRORS`, `send_error`), 깊은 JSON, 500, `linger_close`, 끄기·옵션·켜기 실패 수정. 맨 아래에서 `server_guard`를 켬 |
 | `server_guard.py` (새로) | 엣지 케이스 방어 (`GuardedHandler`, `GuardedServer`, 감시 스레드) |
-| `engine.py` (고침) | `execute`의 `except Exception` → `except ValueError` 한 줄 |
-| `checks/check_errors.py` (새로) | `server.py`의 오류 응답 확인 23개 |
+| `engine.py` | `execute`가 `MiniDBError`만 결과에 담고, `StorageError`와 그 밖의 예외는 올려 보냄 |
+| `checks/check_errors.py` (새로) | `server.py`의 오류 응답 확인 25개 |
 | `checks/check_guard.py` (새로) | `server_guard.py`의 엣지 방어 확인 17개 |
 | `bench/load_test.py` (새로) | D35 숫자 근거 측정 ([STEP15 질문](./STEP15.md#발표-때-나올-질문)) |
 
@@ -611,7 +615,7 @@ curl -s -X POST localhost:8000/query -d "{\"sql\": \"INSERT INTO users (name, ag
 
 | 담당 | 영향 |
 | --- | --- |
-| Phase 1 | **SQL이 틀렸다고 알릴 때는 `ValueError`(또는 그 하위)를 내 주세요.** 다른 종류(`IndexError`, `KeyError` 등)가 새어 나가면 서버는 500으로 답하고 CLI는 멈춥니다. 지금 파서·토크나이저는 모두 `ValueError`라 바꿀 것은 없습니다. 디스크 오류 같은 서버 고장 때는 CLI가 멈춥니다 ([HANDOFF](./HANDOFF.md)) |
+| Phase 1 | 없음. minidb의 `MiniDBError` 계층을 그대로 씁니다. 새 오류 종류를 만들 때 `MiniDBError` 아래에 두면 400, 그 밖이면 500으로 나갑니다 |
 | Phase 2 | 없음 |
 | 서버를 부르는 쪽 (주식 화면 등) | 응답 번호가 200이 아니면 `error.code`만 보면 됩니다. `busy`는 잠시 뒤 다시 보내기, `bad_sql`은 `results`에 이미 저장된 문장이 있음, `internal`은 관리자에게 알리기 |
 
@@ -635,7 +639,7 @@ Pool이 막으려는 것은 "요청 수만큼 스레드가 늘어나는 것"입�
 | --- | --- |
 | `서버를 켤 수 없습니다 (포트 8000): ... Address already in use` | 8000번을 이미 쓰는 중. 이전 서버를 끄거나 `--port 8001` |
 | `데이터 폴더를 열 수 없습니다` | 저장소 맨 위 폴더(`data/`가 있는 곳)에서 실행하기 |
-| `413 too_large` | 본문이 1MB를 넘음. 대량 넣기는 CLI로 (`python3 cli.py 파일.sql`, 서버는 끈 상태로) |
+| `413 too_large` | 본문이 1MB를 넘음. 대량 넣기는 CLI로 (`python -m minidb 파일.sql`, 서버는 끈 상태로) |
 | `408 timeout` | 5초 안에 요청을 다 보내지 못함. 네트워크가 아주 느리거나 클라이언트가 멈춤 |
 | `500 internal` | 서버 터미널에 트레이스백이 있음 |
 | `400` + `Invalid control character` | curl의 `-d` 안에서 줄이 바뀜. 명령을 한 줄로 |

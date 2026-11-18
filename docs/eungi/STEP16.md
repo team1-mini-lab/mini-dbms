@@ -4,7 +4,7 @@
 >
 > | | |
 > | --- | --- |
-> | **무엇이 왜 문제였나** | 15단계에서 서버가 요청을 여러 스레드로 동시에 처리하면, `INSERT` 두 개가 같은 "다음 번호"를 읽어서 **같은 id가 두 번** 붙습니다. lock 없이 스레드 100개로 넣어 보면 100줄 중 서로 다른 id가 16개뿐이었습니다 |
+> | **무엇이 왜 문제였나** | 15단계에서 서버가 요청을 여러 스레드로 동시에 처리하면, `INSERT` 두 개가 같은 "다음 번호"를 읽어서 **같은 id가 두 번** 붙습니다. lock 없이 스레드 100개로 넣어 보면 100줄 중 서로 다른 id가 몇 개뿐입니다(돌릴 때마다 다름. 100개 전부 id 1인 때도 있음) |
 > | **무엇을 만들었나** | 엔진 안에 `threading.Lock()` 하나를 두고, `execute` 위에 `@locked` 한 줄을 붙여 `execute` 전체를 한 번에 하나씩 실행합니다. SELECT도 같이 잠깁니다 |
 > | **무엇과 비교해 골랐나** | 파일 쓰는 곳(storage)만 잠그기는 100줄 전부 id 1이 돼서 실패. 읽기끼리는 동시에 하는 읽기·쓰기 lock은 직접 재 보니 파이썬(GIL)에서 오히려 4\~8배 느려짐. 그래서 가장 단순하고 확실한 "lock 하나"를 골랐습니다 ([아래 비교](#lock-범위-왜-execute-전체인가-d31)) |
 
@@ -18,17 +18,17 @@ Phase 3는 16단계(lock) → 15단계(Thread Pool) → 17단계(오류 응답) 
 
 Phase 3(15단계)에서 서버는 스레드 여러 개로 요청을 동시에 처리합니다. 그러면 `INSERT` 두 개가 거의 같은 순간에 엔진에 들어올 수 있습니다.
 
-`INSERT` 하나는 엔진 안에서 세 걸음입니다 ([STEP1 핵심 코드 ④](./STEP1.md#핵심-코드)).
+`INSERT` 하나는 minidb 실행기(`minidb/executor.py`의 `_execute_insert`) 안에서 세 걸음입니다.
 
 ```
-① 다음 번호(next_id)를 읽음
-② 그 번호로 파일에 씀
+① 다음 번호(_next_ids)를 읽음
+② 그 번호로 파일에 씀 (B+ 트리에도 "번호 → 파일 위치"를 적음)
 ③ 다음 번호를 하나 올림
 ```
 
 lock이 없으면, 스레드 A가 ①과 ③ 사이에 있을 때 스레드 B가 끼어들 수 있습니다.
 
-| 순서 | 스레드 A | 스레드 B | next_id |
+| 순서 | 스레드 A | 스레드 B | 다음 번호 |
 | --- | --- | --- | --- |
 | 1 | ① 읽음 → 4 | | 4 |
 | 2 | | ① 읽음 → **4** (A가 아직 ③ 전) | 4 |
@@ -114,7 +114,7 @@ execute = locked(execute)                       # ② locked에 넘겨서 돌려
 engine.execute("INSERT ...; SELECT ...")
   → wrapper 실행
       → with self._lock: 잠금 🔒 (다른 스레드가 잡고 있으면 여기서 기다림)
-          → method = 우리가 쓴 execute 실행: 문장 나누기 → parse → _run → storage / index
+          → method = 우리가 쓴 execute 실행: parse → 문장마다 _run → executor.execute → storage / B+ 트리
       → with를 나감: 풂 🔓 (오류가 나도 풂)
   → 결과를 돌려줌
 ```
@@ -184,26 +184,24 @@ def execute(self, sql):
 
 함수 **전체**를 잠글 때는 `@locked`, 함수 **일부만** 잠가야 할 때는 `with`를 씁니다.
 
-> 🔄 **고친 점**: 처음에는 이 표에 "Phase 1과 합칠 때 `@locked`는 서로 다른 줄이라 자동으로 합쳐짐"이라고 적었습니다. 교차 검토에서 Phase 1(hnjee) 브랜치와 실제로 합쳐 보니, `@locked`가 아니라 `execute(self, sql, stop_on_error=False)`의 `stop_on_error` 인자([D30](./DECISIONS.md#step3)) 때문에 같은 줄이 바뀌어 충돌이 났습니다. 그래서 그 줄을 지웠습니다. 안전하게 합치는 방법은 [HANDOFF 7절](./HANDOFF.md)에 있습니다.
 
 ### lock 범위: 왜 `execute` 전체인가 ([D31](./DECISIONS.md#step16))
 
-`execute`는 CLI와 서버가 SQL을 넘길 때 부르는 **유일한 입구**입니다. 엔진의 다른 함수는 전부 `execute` 안에서만 불립니다.
+`execute`는 서버가 SQL을 넘길 때 부르는 **유일한 입구**입니다. 엔진의 다른 함수와 minidb 실행기는 전부 `execute` 안에서만 불립니다.
 
 ```
-cli.py ─────┐
-server.py ──┴──→ execute 🔒 ──→ _run ──→ _arrange
-                                      └→ storage.append / scan / read_at
-                                      └→ index.insert / search
-                                 (전부 잠긴 상태에서 실행)
+server.py ──→ execute 🔒 ──→ parse
+                         └→ _run ──→ executor.execute ──→ storage.append / scan / read_at
+                                                     └→ B+ 트리 insert / search / range_search
+                         (전부 잠긴 상태에서 실행)
 ```
 
 | 함수 | lock | 이유 |
 |---|---|---|
 | `__init__` | 안 걸음 | 서버가 요청을 받기 **전에** 한 번만 실행됨. 그때는 스레드가 하나뿐 |
-| `execute` | **걸었음** | CLI와 서버가 부르는 유일한 입구 |
-| `_run`, `_arrange` | 따로 안 걸어도 됨 | `execute` 안에서만 불려서 이미 잠긴 상태 |
-| `storage`, `index` | 따로 안 걸어도 됨 | 마찬가지로 `execute` 안에서만 쓰임 |
+| `execute` | **걸었음** | 서버가 부르는 유일한 입구 |
+| `_run` | 따로 안 걸어도 됨 | `execute` 안에서만 불려서 이미 잠긴 상태 |
+| minidb 실행기, 저장소, B+ 트리 | 따로 안 걸어도 됨 | 마찬가지로 `execute` 안에서만 쓰임. 실행기는 스스로는 스레드 안전하지 않음(다음 번호, 테이블별 트리, 처음 쓸 때 트리를 만드는 `_load`, 파일 append에 잠금이 없음). 그래서 반드시 이 lock 안에서만 부름 |
 
 **SELECT도 잠깁니다.** SELECT만 따로 잠그는 코드는 없지만, SELECT도 `execute` → `_run`의 SELECT 부분으로 가기 때문에 같이 잠깁니다. 다른 스레드가 lock을 1초 동안 잡고 있는 사이에 SELECT를 보내 보면, SELECT가 **1.00초를 기다렸다가** 실행됩니다.
 
@@ -214,15 +212,15 @@ server.py ──┴──→ execute 🔒 ──→ _run ──→ _arrange
 **왜 storage에 lock을 걸지 않았나요?** INSERT 한 번은 네 곳에 걸쳐 있습니다.
 
 ```
-① 다음 번호 읽기      ← engine (self.next_id)
+① 다음 번호 읽기      ← 실행기 (_next_ids)
 ② 파일에 쓰기         ← storage
-③ 다음 번호 올리기    ← engine (self.next_id)
-④ 인덱스에 적기       ← index
+③ 인덱스에 적기       ← 실행기 (B+ 트리)
+④ 다음 번호 올리기    ← 실행기 (_next_ids)
 ```
 
 storage에 lock을 걸면 ②만 보호되고 ①③④는 보호되지 않습니다. 실제로 엔진 lock은 끄고 storage에만 lock을 건 채 스레드 100개로 돌려 보면 **100줄 전부 id 1**이 됩니다. 핵심은 **① 번호 읽기가 lock 바깥, 그것도 lock 입구 앞에서 일어난다**는 점입니다.
 
-| 순서 | 일어나는 일 | next_id |
+| 순서 | 일어나는 일 | 다음 번호 |
 | --- | --- | --- |
 | 1 | 스레드 1\~100이 모두 ①을 함. 아직 아무도 ③을 안 했으니 **100개 모두 1을 읽음** | 1 |
 | 2 | 100개가 ②(파일 쓰기)로 가려는데 lock이 하나라 **줄을 섬**. 각자 손에 "id=1"을 든 채로 | 1 |
@@ -230,7 +228,7 @@ storage에 lock을 걸면 ②만 보호되고 ①③④는 보호되지 않습�
 | 4 | 스레드 2가 들어가서 **자기가 이미 읽어 둔 1**로 줄을 씀 → 나와서 ③ | 3 |
 | … | 나머지도 모두 id=1로 씀 | … |
 
-lock 앞에서 기다리는 동안 next_id가 올라가도 소용이 없습니다. 각 스레드는 **기다리기 전에 이미 1을 읽어 두었기 때문**입니다. storage lock은 "두 스레드가 동시에 파일에 써서 줄이 뒤섞이는 것" 하나만 막습니다.
+lock 앞에서 기다리는 동안 다음 번호가 올라가도 소용이 없습니다. 각 스레드는 **기다리기 전에 이미 1을 읽어 두었기 때문**입니다. storage lock은 "두 스레드가 동시에 파일에 써서 줄이 뒤섞이는 것" 하나만 막습니다.
 
 | lock 위치 | 보호되는 것 | 결과 (스레드 100개) |
 |---|---|---|
@@ -248,14 +246,14 @@ lock은 **같이 바뀌어야 하는 것들을 모두 감싸는 가장 바깥**�
 
 `execute` 전체를 잠그면 엔진 안에서는 동시 실행이 없습니다. 그래서 Phase 2의 B+ 트리는 **동시성을 신경 쓰지 않아도 됩니다.**
 
-**⚠️ 지켜야 할 규칙**: 엔진은 항상 `engine.execute`로만 부릅니다. 엔진 밖에서 `engine._run(...)`이나 `engine.storage.append(...)`를 직접 부르면 lock을 건너뛰게 됩니다.
+**⚠️ 지켜야 할 규칙**: 엔진은 항상 `engine.execute`로만 부릅니다. 엔진 밖에서 `engine.executor.execute(...)`나 `engine.storage.table(...).append(...)`를 직접 부르면 lock을 건너뛰게 됩니다.
 
 | 누가 | 조심할 상황 |
 | --- | --- |
-| Phase 1 | Phase 1(6단계)에서 실행기를 `executor.py`로 떼어 내도, 입구는 `engine.execute` 하나로 남기고 `@locked`도 그대로 둠 |
-| Phase 2 | Phase 2(14단계) 성능 비교에서 `engine.index.search(...)`를 직접 부르지 말고 `engine.execute("SELECT ...")`로 잼 |
+| Phase 1 | 실행기를 고쳐도 입구는 `engine.execute` 하나로 남기고 `@locked`도 그대로 둠 |
+| Phase 2 | B+ 트리는 실행기 안에서만 쓰이므로 엔진 lock이 같이 보호함. 서버에서 트리를 직접 부르지 않음 |
 
-**lock이 막지 못하는 것**: CLI와 서버는 따로 실행되어서 lock도 각자 하나씩 가집니다. 서버가 켜져 있을 때 CLI로 `INSERT`하는 경우는 lock으로 막을 수 없어서, "쓰는 건 둘 중 하나만" 규칙([D29](./DECISIONS.md#step3))으로 둡니다.
+**lock이 막지 못하는 것**: CLI(`python -m minidb`)와 서버는 따로 실행되는 프로세스라 lock을 같이 쓰지 않습니다. 서버가 켜져 있을 때 CLI로 같은 폴더에 `INSERT`하는 경우는 lock으로 막을 수 없어서, "쓰는 건 둘 중 하나만" 규칙([D29](./DECISIONS.md#step3))으로 둡니다.
 
 ## 확인 스크립트 · [`checks/check_concurrency.py`](../../checks/check_concurrency.py)
 
@@ -300,16 +298,17 @@ INSERT 하나(①\~④)는 0.011ms면 끝납니다. 한 스레드가 자기 차�
 `time.sleep()`은 위 표의 "기다릴 일이 생겼을 때"라서, 부르는 즉시 다른 스레드로 바뀝니다. 그래서 ②에서 쉬게 하면 **매번** ①과 ③ 사이에서 스레드가 바뀌고, 모든 스레드가 같은 번호를 읽게 됩니다. 드문 순간을 매번 일어나게 만들어 문제를 눈에 보이게 한 것입니다.
 
 ```python
-    original_append = engine.storage.append
+    table_file = engine.storage.table("users")           # 실행기가 append를 부르는 바로 그 파일 객체
+    original_append = table_file.append
 
-    def slow_append(table, row):                          # "번호 읽기"와 "번호 올리기" 사이를 넓힘
+    def slow_append(row):                                 # "번호 읽기"와 "번호 올리기" 사이(파일 쓰기)를 넓힘
         time.sleep(SLOW_WRITE_SECONDS)
-        return original_append(table, row)
+        return original_append(row)
 
-    engine.storage.append = slow_append
+    table_file.append = slow_append
 ```
 
-이 스크립트가 만든 엔진에만 바꿔 끼우므로, 실제 코드(`storage.py`)에는 쉬는 부분이 없습니다. `original_append`에 원래 함수를 기억해 두고, "0.001초 쉰 다음 원래 함수를 부르는" `slow_append`를 그 자리에 넣은 것입니다.
+이 스크립트가 만든 엔진에만 바꿔 끼우므로, 실제 코드(`minidb/storage.py`)에는 쉬는 부분이 없습니다. `original_append`에 원래 함수를 기억해 두고, "0.001초 쉰 다음 원래 함수를 부르는" `slow_append`를 그 자리에 넣은 것입니다.
 
 ## 직접 확인해 보기
 
@@ -352,15 +351,15 @@ python3 checks/check_concurrency.py
 
 | 파일 | 내용 |
 | --- | --- |
-| `engine.py` (고침) | `locked` 데코레이터 추가, `__init__`에 `self._lock` 한 줄, `execute` 위에 `@locked` 한 줄. `execute` 안은 그대로 |
+| `engine.py` | `locked` 데코레이터, `__init__`에 `self._lock` 한 줄, `execute` 위에 `@locked` 한 줄 |
 | `checks/check_concurrency.py` (새로) | 스레드 N개 동시 INSERT. lock 끔 / 켬 비교 |
 
 ## 다른 담당에게 영향
 
 | 담당 | 영향 |
 | --- | --- |
-| Phase 1 | `execute` 안을 고쳐도 됩니다. 다만 hnjee와 합칠 때 `execute` 머리(`stop_on_error` 인자)에서 충돌이 납니다. 푸는 방법은 [HANDOFF 7절](./HANDOFF.md) |
-| Phase 2 | B+ 트리는 동시성을 신경 쓰지 않아도 됩니다. 엔진이 한 번에 하나씩만 `insert`/`search`를 부릅니다 |
+| Phase 1 | 실행기에 lock을 따로 넣지 않아도 됩니다. 엔진이 한 번에 하나씩만 `executor.execute`를 부릅니다 |
+| Phase 2 | B+ 트리는 동시성을 신경 쓰지 않아도 됩니다. 실행기가 엔진 lock 안에서만 `insert`/`search`/`range_search`를 부릅니다 |
 
 ## 발표 때 나올 질문
 
@@ -397,4 +396,4 @@ lock 하나일 때는 요청 시간의 대부분이 lock 앞에서 기다리는 
 | --- | --- |
 | 서버가 멈춰서 응답이 안 옴 | `execute` 안에서 다시 `execute`를 부르면 같은 스레드가 lock을 두 번 얻으려다 멈춥니다. `execute` 안에서는 `_run`처럼 lock이 없는 함수를 부르기 |
 | lock 끔에서 겹침이 안 생김 | 컴퓨터가 빨라서 우연히 안 겹친 것. 스레드 수를 늘리기 (`python3 checks/check_concurrency.py 300`) |
-| 서버가 켜져 있는데 CLI로 넣었더니 id가 겹침 | lock으로는 못 막는 경우. [STEP3 ⚠️](./STEP3.md) 참고 |
+| 서버가 켜져 있는데 CLI로 넣었더니 id가 겹침 | lock으로는 못 막는 경우(프로세스가 다름). 서버를 끄고 CLI로 넣거나, 서버로만 넣기 |
