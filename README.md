@@ -28,9 +28,12 @@ Python 3.10 이상이면 됩니다. 실행에 필요한 외부 패키지는 없�
 
 ### 1. SQL 처리기: SQL 파일을 CLI로 (Phase 1)
 ```bash
-python3 -m minidb examples/step1.sql --data-dir /tmp/demo --schema data/schema.json   # INSERT 2개 + SELECT
-python3 -m minidb examples/step2.sql --data-dir /tmp/demo --schema data/schema.json   # 다시 실행해 id = 2 조회
+python3 -m minidb examples/step1.sql --data-dir /tmp/demo --schema data/schema.json
+python3 -m minidb examples/step2.sql --data-dir /tmp/demo --schema data/schema.json
 ```
+- 첫째 줄: INSERT 2개 + SELECT
+- 둘째 줄: 다시 실행해 id = 2 조회
+
 ```
 1 row inserted (id=1)
 1 row inserted (id=2)
@@ -43,9 +46,12 @@ id | name | age
 
 ### 2. 100만 건 성능 비교 (Phase 2)
 ```bash
-python3 bench/run_bench.py 10000 100000    # 빠르게 보기
-python3 bench/run_bench.py                 # 1만, 10만, 100만 건 (100만 건은 약 1분, 메모리 약 1.7GB)
+python3 bench/run_bench.py 10000 100000
+python3 bench/run_bench.py
 ```
+- 첫째 줄: 빠르게 보기
+- 둘째 줄: 1만, 10만, 100만 건 (100만 건은 약 1분, 메모리 약 1.7GB)
+
 | 건수 | 넣기 | 켜기(B+ 트리 다시 만들기) | 트리 높이 | id로 찾기 (인덱스) | name으로 찾기 (전체 스캔) | 배 |
 |---:|---:|---:|---:|---:|---:|---:|
 | 1,000,000 | 48.4초 | 1.87초 | 5 | 0.032ms | 1364.1ms | 43,094배 |
@@ -54,10 +60,12 @@ INSERT 100만 줄을 만들어 CLI로 넣고, 같은 데이터에서 두 경로�
 
 ### 3. API 서버와 동시성 (Phase 3)
 ```bash
-python3 server.py                          # http://localhost:8000 (브라우저로 열면 테스트 페이지)
+python3 server.py
 curl -s -X POST localhost:8000/query -d '{"sql": "SELECT * FROM users WHERE id > 1;"}'
-curl -s localhost:8000/stats               # 스레드·대기열 상태, 503으로 돌려보낸 수
+curl -s localhost:8000/stats
 ```
+- 첫째 줄: http://localhost:8000 (브라우저로 열면 테스트 페이지)
+- 셋째 줄: 스레드·대기열 상태, 503으로 돌려보낸 수
 
 **lock이 없을 때와 있을 때.** 스레드 100개가 동시에 INSERT합니다. lock을 끄면 여러 행이 같은 id를 받고, 켜면 1~100이 정확히 나옵니다.
 ```bash
@@ -166,12 +174,17 @@ while leaf is not None:
 ## 품질: 테스트와 엣지 케이스
 
 ```bash
-pip install -r requirements-dev.txt && pytest   # 단위 테스트 313개 (SQL 처리기·B+ 트리·엔진·서버)
-python3 checks/check_all.py                     # 기능 테스트 (INSERT·SELECT·인덱스 사용·열 순서·재시작 뒤 id 이어짐)
-python3 checks/check_threadpool.py              # Thread Pool (여러 스레드가 나눠 받기, 대기열 포화 시 503)
-python3 checks/check_errors.py                  # 오류 응답 (400·404·405·408·413·500·503)
-python3 checks/check_guard.py                   # 엣지 방어 (느린 연결, Content-Length, 끄기)
+pip install -r requirements-dev.txt && pytest
+python3 checks/check_all.py
+python3 checks/check_threadpool.py
+python3 checks/check_errors.py
+python3 checks/check_guard.py
 ```
+- 첫째 줄: 단위 테스트 313개 (SQL 처리기·B+ 트리·엔진·서버)
+- 둘째 줄: 기능 테스트 (INSERT·SELECT·인덱스 사용·열 순서·재시작 뒤 id 이어짐)
+- 셋째 줄: Thread Pool (여러 스레드가 나눠 받기, 대기열 포화 시 503)
+- 넷째 줄: 오류 응답 (400·404·405·408·413·500·503)
+- 다섯째 줄: 엣지 방어 (느린 연결, Content-Length, 끄기)
 
 ### 요청이 틀리면 어디서 무엇이라고 답하나요?
 
@@ -192,10 +205,12 @@ python3 checks/check_guard.py                   # 엣지 방어 (느린 연결, 
 
 예를 들어 스레드와 대기열을 모두 채우면 세 번째 요청은 바로 503을 받습니다.
 ```bash
-python3 server.py --workers 1 --queue 1    # 터미널 1: 스레드 1개, 대기열 1칸
+python3 server.py --workers 1 --queue 1
 (sleep 3 | nc localhost 8000 &) && (sleep 3 | nc localhost 8000 &) && sleep 0.3 && \
-curl -s -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'   # 터미널 2
+curl -s -X POST http://localhost:8000/query -d '{"sql": "SELECT * FROM users;"}'
 ```
+- 첫째 줄(터미널 1): 스레드 1개, 대기열 1칸으로 켜기
+- 둘째·셋째 줄(터미널 2): 느린 연결 2개로 자리를 채운 뒤 세 번째 요청 → 바로 503
 
 ## 참고
 
