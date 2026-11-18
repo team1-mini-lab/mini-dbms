@@ -144,7 +144,42 @@ while leaf is not None:
 - **실행기는 문장 하나만.** 열·타입 확인, B+ 트리 또는 전체 스캔, 파일 읽고 쓰기. Phase 1·2 코드를 그대로 씁니다.
 - **lock은 엔진 입구 한 곳.** 요청 하나(문장 여러 개)를 통째로 묶을 수 있고, 실행기는 고치지 않아도 되고, 스레드가 없는 CLI에는 붙지 않습니다.
 
-![요청 하나가 서버 → 엔진(lock) → 파서 → 실행기 → B+ 트리·파일을 지나는 순서](docs/images/request_flow.png)
+```mermaid
+%%{init: {"theme": "default", "themeVariables": {"fontSize": "18px", "noteBkgColor": "#fef3c7", "noteBorderColor": "#d97706", "actorBkg": "#f3f4f6", "actorBorder": "#374151"}, "sequence": {"actorMargin": 70, "messageMargin": 40, "actorFontSize": 18, "messageFontSize": 17, "noteFontSize": 16, "mirrorActors": false}}}%%
+sequenceDiagram
+    autonumber
+    participant S as 서버<br>server.py
+    participant E as 엔진<br>engine.py
+    participant P as 파서<br>parser.py
+    participant X as 실행기<br>executor.py
+    participant B as B+ 트리<br>bptree.py
+    participant F as 파일<br>storage.py → users.tbl
+
+    S->>E: execute("INSERT ... SELECT ...")<br>SQL 글자 한 덩어리
+    rect rgba(255, 200, 120, 0.25)
+    Note over E,F: 🔒 lock 안: 한 번에 한 요청만
+    E->>P: parse(sql)
+    P-->>E: [Insert 객체, Select 객체]
+
+    E->>X: execute(Insert 객체)
+    Note right of X: 열·타입 확인<br>다음 id = 1
+    X->>F: 끝에 한 줄 쓰기 "1 현지 25"
+    F-->>X: 위치 0
+    X->>B: insert(id 1, 위치 0)
+    X-->>E: QueryResult(columns=("id",), rows=((1,),))
+
+    E->>X: execute(Select 객체)
+    X->>B: search(id 1)
+    B-->>X: 위치 0
+    X->>F: 위치 0의 한 줄 읽기
+    F-->>X: (1, "현지", 25)
+    X-->>E: QueryResult(..., used_index=True)
+
+    Note over E: 두 결과를 dict로 바꿔 목록으로 묶음
+    end
+    E-->>S: [ {type: insert, id: 1}, {type: select, ..., used_index: true} ]
+    Note over S: json.dumps → HTTP 200 응답
+```
 
 **lock이 지키는 것:** 여러 요청이 함께 쓰는 다음 id, B+ 트리, 파일 객체입니다. INSERT("다음 id 읽기 → 쓰기 → id 올리기")나 SELECT("위치로 이동 → 읽기") 사이에 다른 스레드가 끼면 id가 겹치거나 엉뚱한 줄을 읽습니다.
 
