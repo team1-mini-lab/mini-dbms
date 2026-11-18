@@ -51,7 +51,7 @@ class BPlusTree:
         return None
 
     def range_search(self, start, end):
-        """start <= key <= end 인 (key, value) 목록, key 오름차순. 실행기는 아직 쓰지 않는다."""
+        """start <= key <= end 인 (key, value) 목록, key 오름차순. 실행기가 id 범위 조건에 쓴다."""
         result = []
         if start > end:
             return result

@@ -10,7 +10,8 @@
 Phase 2 (7~9단계, docs/phase2.md): 테이블마다 B+ 트리(id -> 오프셋)를 메모리에 둔다.
   - 테이블을 처음 쓸 때 한 번 scan 하며 최대 id 와 트리를 함께 만든다. (재시작 복구)
   - INSERT 는 파일에 쓴 뒤 돌려받은 오프셋을 트리에 등록한다.
-  - SELECT 는 조건이 `id = 값` 이면 트리로 오프셋을 찾아 그 행만 읽고, 아니면 전체 스캔한다.
+  - SELECT 는 조건이 `id = 값` 이면 트리로 오프셋을 찾아 그 행만 읽고,
+    `id <, <=, >, >= 값` 이면 range_search 로 해당 행들만 읽는다. 그 외에는 전체 스캔한다.
 """
 
 from __future__ import annotations
@@ -51,6 +52,24 @@ _OPERATORS: dict[str, Callable[[object, object], bool]] = {
     ">": operator.gt,
     ">=": operator.ge,
 }
+
+# id 조건 중 B+ 트리의 range_search 로 처리하는 연산자.
+_RANGE_OPS = frozenset({"<", "<=", ">", ">="})
+
+
+def _id_bounds(op: str, value: int) -> tuple[float, float]:
+    """범위 연산자를 range_search 의 양끝 포함 구간 [start, end] 로 바꾼다.
+
+    id 는 정수이므로 `< v` 는 `<= v - 1`, `> v` 는 `>= v + 1` 과 같다.
+    열린 쪽은 무한대로 둔다 (정수와 비교 가능).
+    """
+    if op == "<":
+        return float("-inf"), value - 1
+    if op == "<=":
+        return float("-inf"), value
+    if op == ">":
+        return value + 1, float("inf")
+    return value, float("inf")  # ">="
 
 
 def _literal_matches(col: Column, value: Literal) -> bool:
@@ -161,13 +180,21 @@ class Executor:
         predicate = self._make_predicate(table, stmt.where)  # 컬럼, 타입 검증은 경로와 무관하게 먼저
         table_file = self.storage.table(table.name)
 
-        # 경로 선택 (9단계). 가장 단순한 옵티마이저: 조건이 `id = 값` 일 때만 인덱스를 쓴다.
+        # 경로 선택 (9단계). 가장 단순한 옵티마이저: 조건이 id 에 대한 `=` 또는 범위일 때 인덱스를 쓴다.
+        # `!=` 는 거의 모든 행이 해당하므로 스캔한다.
         cond = stmt.where
         candidates: Iterable[Row]
         if cond is not None and cond.column == ID_COLUMN and cond.op == "=":
             offset = self._load(table).search(cond.value)
             # 오프셋 0 (첫 행) 도 유효하므로 `is None` 으로 구별한다.
             candidates = [] if offset is None else [table_file.read_at(offset)]
+            used_index = True
+        elif cond is not None and cond.column == ID_COLUMN and cond.op in _RANGE_OPS:
+            start, end = _id_bounds(cond.op, cond.value)
+            pairs = self._load(table).range_search(start, end)
+            # 오프셋 순으로 읽어 스캔과 같은 순서(파일 순서)로 돌려준다.
+            # 경계 포함 여부는 아래 predicate 가 한 번 더 확인한다.
+            candidates = (table_file.read_at(off) for off in sorted(off for _key, off in pairs))
             used_index = True
         else:
             candidates = (row for _offset, row in table_file.scan())  # 한 행씩 흘려보낸다

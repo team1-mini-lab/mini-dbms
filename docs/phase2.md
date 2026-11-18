@@ -11,7 +11,7 @@
 
 아직 안 되는 것:
 - `id` 가 아닌 컬럼(`name`, `grade` 등)으로 찾기는 여전히 전체 스캔이다.
-- `id < 10` 같은 범위 조건도 아직 전체 스캔이다. (트리에는 `range_search` 가 있지만 실행기가 쓰지 않는다)
+- `id != 값` 은 전체 스캔이다. (거의 모든 행이 해당하므로 인덱스가 이득이 없다)
 - 인덱스는 메모리에만 있다. 디스크에 저장하지 않으므로 실행할 때마다 다시 만든다.
 
 somang 브랜치의 B+ 트리와 벤치마크를 hnjee 브랜치의 Phase 1 구조(파서, 실행기, 저장소 세 층)에 옮겨 심은 결과다.
@@ -29,7 +29,7 @@ SQL 파일 → ① CLI 입력 → ② 토크나이저 → ③ 파서 → ④ 실
 ```
 SELECT * FROM students WHERE id = 3;
                 │
-          ④ 실행기: 조건이 id = 값 인가?
+          ④ 실행기: 조건이 id = 값 인가? (범위 조건은 2절 ⑤)
            ├─ 예  → B+ 트리.search(3) → 오프셋 → 저장소.read_at(오프셋)   (한 줄만 읽음)
            └─ 아니오 → 저장소.scan()  → 한 줄씩 조건 검사                    (Phase 1 그대로)
 ```
@@ -112,7 +112,7 @@ rows = [... for row in candidates if predicate(row)]
 - **오프셋 0 을 '없음' 과 구별한다.** 첫 행의 오프셋은 0 이다. `if offset:` 으로 쓰면 첫 행을 못 찾는다. 그래서 `is None` 으로 확인한다.
 - **나머지 처리는 두 경로가 같다.** 인덱스 경로도 후보 행을 같은 `predicate` 와 컬럼 고르기에 통과시킨다. 그래서 somang 엔진에 있던 "`SELECT *` 만", "`=` 만" 제한이 사라졌고, `SELECT name, grade FROM students WHERE id = 4;` 도 인덱스를 탄다.
 
-`=` 만 인덱스를 쓰는 이유: DESIGN.md 9단계의 범위가 `WHERE id = ?` 이다. `<`, `>` 등은 `range_search` 로 확장할 수 있지만, 이번에는 이식만 하고 기능은 늘리지 않았다.
+처음 이식할 때는 DESIGN.md 9단계의 범위(`WHERE id = ?`)대로 `=` 만 인덱스를 썼다. 이후 범위 조건을 추가했다 (⑤).
 
 ### ④ 결과에 경로 표시: `QueryResult.used_index`
 
@@ -126,6 +126,25 @@ used_index: bool = field(default=False, compare=False)
 - `compare=False`: `==` 비교에서 뺀다. "인덱스로 찾은 결과 == 스캔으로 찾은 결과" 를 그대로 비교할 수 있고, Phase 1 테스트 223개도 고칠 필요가 없다.
 
 CLI 출력은 바꾸지 않았다. 사용자에게 보이는 결과는 경로와 상관없이 같아야 하기 때문이다.
+
+### ⑤ id 범위 조건도 인덱스로 (Phase 3 이관 전 추가)
+
+**왜 필요한가.** `id < 10`, `id >= 999990` 처럼 id 구간을 찾는 조건도 전체 스캔이었다. somang 트리에는 리프 연결을 따라가는 `range_search(start, end)` 가 이미 있었으므로, 실행기 갈림길에 한 갈래만 더했다.
+
+```python
+elif cond is not None and cond.column == "id" and cond.op in ("<", "<=", ">", ">="):
+    start, end = _id_bounds(cond.op, cond.value)          # 예: id < 10 → [-inf, 9]
+    pairs = self._load(table).range_search(start, end)
+    candidates = (table_file.read_at(off) for off in sorted(off for _key, off in pairs))
+    used_index = True
+```
+
+- **구간 바꾸기.** `range_search` 는 양끝을 포함한다. id 는 정수이므로 `< v` 는 `<= v-1`, `> v` 는 `>= v+1` 로 바꾸고, 열린 쪽은 무한대로 둔다.
+- **파일 순서로 읽는다.** 트리는 id 순으로 돌려주지만, 오프셋을 정렬해서 읽으면 스캔과 같은 순서(파일 순서)가 된다. 파일을 직접 편집해 id 순서가 섞여 있어도 두 경로의 결과가 같다. (`test_range_keeps_file_order_with_unsorted_ids`)
+- **검증과 마무리는 `=` 경로와 같다.** 타입 검사가 먼저이고, 후보 행은 같은 `predicate` 를 한 번 더 통과한다.
+- **`!=` 는 스캔으로 둔다.** 거의 모든 행이 해당해서 트리를 거쳐도 이득이 없다.
+
+범위가 넓으면(예: `id > 0`) 결국 모든 행을 `read_at` 으로 하나씩 읽으므로 스캔보다 느릴 수 있다. 비용으로 경로를 고르는 옵티마이저는 범위 밖이다.
 
 ## 3. 바꾸지 않은 곳
 
@@ -179,13 +198,14 @@ python bench/run_bench.py 1000000
 | `minidb/bptree.py` | 새 파일. somang 의 BPlusTree |
 | `minidb/executor.py` | `_load` (구 `_next_id`), INSERT 후 등록, SELECT 경로 선택, `QueryResult.used_index` |
 | `tests/test_bptree.py` | 새 파일. 트리 단독 테스트 16개 (somang 의 check 스크립트 이식) |
-| `tests/test_index.py` | 새 파일. 실행기 연동 테스트 21개 |
+| `tests/test_index.py` | 새 파일. 실행기 연동 테스트 55개 (범위 조건 포함) |
 | `bench/make_sql.py`, `bench/run_bench.py` | 새 파일. somang 의 벤치마크를 minidb 에 맞춤 |
 | `docs/DESIGN.md`, `README.md` | 프로젝트 구조(`scripts/` → `bench/`)와 벤치마크 실행법 |
 
 완료 기준:
-- `pytest` 전체 통과: Phase 1 223개 + Phase 2 37개 = 260개.
+- `pytest` 전체 통과: Phase 1 223개 + Phase 2 71개 = 294개.
 - `WHERE id = 값` 은 `used_index=True` 이고 scan 을 부르지 않는다. (`test_index_lookup_does_not_scan`)
+- `WHERE id < / <= / > / >= 값` 도 인덱스를 타고, 결과가 스캔과 같다. (`test_range_index_matches_scan`, `test_range_lookup_does_not_scan`)
 - 같은 행을 id 와 name 으로 찾은 결과가 같다. (`test_index_and_scan_give_same_row`)
 - 실행기를 새로 만들어도(재시작) id 조회가 된다. (`test_restart_rebuilds_index`, `test_select_first_after_restart_builds_index`)
 - `python bench/run_bench.py 1000000` 이 끝까지 돈다.
