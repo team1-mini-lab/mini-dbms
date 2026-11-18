@@ -9,7 +9,7 @@ SELECT * FROM users WHERE id = 1;                   -- 꺼내기: B+ 트리로 �
 
 [mini-redis](https://github.com/team1-mini-lab/mini-redis)는 키 하나로 값 하나를 꺼내는 메모리 캐시였습니다. DBMS는 꺼져도 데이터가 남게 파일에 쓰고, 키 하나가 아니라 열과 범위로도 찾고, 여러 사람이 동시에 씁니다. 그래서 세 가지 문제를 풀었습니다.
 
-**1. 데이터의 모양 (Phase 1).** 어떤 열이 몇 번째 칸에 있는지를 여러 코드가 각자 알고 있으면, 열 하나가 추가되거나 바뀔 때 그 파일을 읽는 코드를 전부 고쳐야 합니다. 그래서 파일의 모양은 SQL 처리기 한 곳만 알게 했습니다. 다른 코드는 열 이름으로 요청하고, 열 이름을 칸 번호로 바꾸는 일과 쓰기 전에 열과 타입을 확인하는 일은 처리기가 맡습니다. [→ 전과 후](#phase-1-파일-모양은-왜-sql-처리기-한-곳만-아나요)
+**1. 데이터의 모양 (Phase 1).** 어떤 열이 몇 번째 칸에 있는지를 여러 코드가 각자 알고 있으면, 열 하나가 추가되거나 바뀔 때 그 파일을 읽는 코드를 전부 고쳐야 합니다. 그래서 파일의 모양은 SQL 처리기 한 곳만 알게 했습니다. 다른 코드는 열 이름으로 요청하고, 열 이름을 칸 번호로 바꾸는 일과 쓰기 전에 열과 타입을 확인하는 일은 처리기가 맡습니다. [→ 코드로 보기](#phase-1-파일-모양은-왜-sql-처리기-한-곳만-아나요)
 
 **2. 많은 행 (Phase 2).** 목차가 없으면 100만 건을 처음부터 훑습니다(1,364ms). INSERT 때 자동으로 붙는 id와 그 줄의 파일 위치를 메모리의 목차(B+ 트리)에 적어 두고, 찾을 때 그 줄만 읽습니다(0.032ms). 해시 테이블은 키 하나는 빠르지만 순서를 몰라 범위를 못 찾고, 이진 탐색 트리는 순서대로 들어오는 id에서 한쪽으로 기울어서, 균형을 유지하며 범위도 찾는 B+ 트리를 골랐습니다. [→ 왜 B+ 트리인가](#phase-2-왜-해시-테이블이-아니라-b-트리인가요)
 
@@ -91,25 +91,30 @@ time curl -s -X POST localhost:8000/query -d '{"sql": "SELECT * FROM users WHERE
 
 ### Phase 1: 파일 모양은 왜 SQL 처리기 한 곳만 아나요?
 
-```mermaid
-flowchart TB
-    subgraph BEFORE["전: 코드마다 파일 모양을 각자 앎"]
-        direction LR
-        O1["order.py<br>쿠폰 열 추가"] -->|직접 씀| F1[("orders.csv<br>열 4개 → 5개")]
-        F1 -->|직접 읽음| R1["report.py<br>❌ 멈춤"]
-        F1 -->|직접 읽음| D1["delivery.py<br>❌ 멈춤"]
-    end
-    subgraph AFTER["후: 파일 모양은 SQL 처리기만 앎"]
-        direction LR
-        O2["order.py"] -->|열 이름으로| P["SQL 처리기<br>열 이름 → 칸 번호"]
-        R2["report.py<br>✅ 그대로"] -->|열 이름으로| P
-        D2["delivery.py<br>✅ 그대로"] -->|열 이름으로| P
-        P -->|혼자 읽고 씀| F2[("orders.tbl")]
-    end
-    BEFORE ~~~ AFTER
+어떤 열이 몇 번째 칸에 있는지를 여러 코드가 각자 알고 있으면, 열 하나가 바뀔 때 그 파일을 읽는 코드를 전부 고쳐야 합니다([왜 DBMS인가](docs/study/WHY_DBMS/WHY_DBMS.md)의 문제 1). 그래서 모양은 **한 파일**에만 적고, 그걸 읽는 건 **SQL 처리기**뿐입니다.
+
+**① 모양은 `data/schema.json` 한 곳에만 있습니다.**
+```json
+"users": {"columns": [{"name": "id", "type": "INT"}, {"name": "name", "type": "TEXT"}, {"name": "age", "type": "INT"}]}
 ```
 
-전에는 세 코드가 각자 "열 4개, 4번째가 가격"이라고 알고 파일을 직접 열어서, 한 코드가 열을 추가하는 순간 나머지가 멈춥니다. 후에는 모두 열 **이름**으로만 요청하고, 그 이름이 몇 번째 칸인지는 SQL 처리기만 압니다. 열이 늘어도 스키마만 바뀝니다. `(age, name)` 순서로 넣어도 스키마 순서 `[id, name, age]`로 저장되고, 보낸 SQL을 전부 해석한 뒤에 실행해서 문법이 틀린 문장이 섞이면 아무 문장도 실행하지 않습니다. 예시는 [왜 DBMS인가](docs/study/WHY_DBMS/WHY_DBMS.md)의 문제 1입니다.
+**② INSERT: 사용자가 쓴 순서를 스키마 순서로 바꿉니다** (`minidb/executor.py`)
+```python
+given = dict(zip(columns, stmt.values))          # {name: '지수', age: 30}  ← 사용자가 쓴 순서
+...
+return tuple(given[c] for c in table.user_columns)  # ('지수', 30)          ← 스키마 순서
+```
+```sql
+INSERT INTO users (age, name) VALUES (30, '지수');   -- users.tbl에는 "1	지수	30"으로 저장
+```
+
+**③ SELECT: 열 이름을 칸 번호로 바꿔 꺼냅니다** (`minidb/executor.py`, `minidb/catalog.py`)
+```python
+out_indexes = [table.column_index(n) for n in out_names]   # ["age", "name"] → [2, 1]
+rows = [tuple(row[i] for i in out_indexes) for row in candidates if predicate(row)]
+```
+
+`server.py`와 `engine.py`에는 칸 번호가 한 번도 나오지 않습니다. SQL을 그대로 넘기고, 열 이름으로 된 결과를 받을 뿐입니다. 그래서 열 순서가 바뀌어도 고칠 곳은 `schema.json` 한 줄과 처리기뿐이고, 쓰기 전에 열 이름과 타입(INT·TEXT)을 확인하는 일도 처리기 한 곳에서 합니다.
 
 ### Phase 2: 왜 해시 테이블이 아니라 B+ 트리인가요?
 
@@ -283,6 +288,7 @@ SELECT * FROM users WHERE id > 100;              -- id 범위 조건은 B+ 트�
 ### 한계
 
 - 인덱스는 `id`에만 있습니다. 다른 열로 찾으면 전체 스캔이고(100만 건에 1,364ms), 그동안 lock을 잡고 있어 다른 요청도 기다립니다. 다른 열에도 B+ 트리(보조 인덱스)를 만들 수 있지만, 같은 값이 여러 행에 있을 수 있고 INSERT마다 인덱스를 하나씩 더 고쳐야 해서 이번 범위에서는 하지 않았습니다.
+- 열을 추가하면 이미 저장된 줄은 칸 수가 맞지 않아 읽을 수 없습니다(손상된 행 오류). 옛 줄에 기본값을 채우는 기능(`ALTER TABLE`)은 없습니다.
 - 같은 데이터 폴더에 한 번에 한 프로세스만 쓴다고 가정합니다. 서버가 켜진 채로 같은 폴더에 CLI로 쓰는 것은 막지 못합니다.
 - 범위가 넓으면(`id > 0`) 줄마다 위치로 읽어서 전체 스캔보다 느릴 수 있습니다. 비용을 따져 경로를 고르는 기능은 없습니다.
 - 100만 건을 CLI로 넣을 때 메모리를 약 1.7GB 씁니다 (파일 전체를 먼저 해석하는 구조).
