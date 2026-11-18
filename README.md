@@ -4,9 +4,13 @@ SQL 문장을 받아 데이터를 파일에 저장하고, 원하는 데이터를
 
 mini-redis는 키 하나로 값 하나를 꺼내는 캐시라, 요청마다 스레드를 만들고 저장소에 lock 하나만 둬도 충분했습니다. lock 안의 일이 해시 테이블 조회 하나로 아주 짧기 때문입니다.
 
-DBMS는 여러 사람이 열이 있는 같은 데이터를 함께 씁니다. 그래서 먼저 SQL 처리기가 열 이름을 칸 번호로 바꾸고, 쓰기 전에 열과 타입을 확인하고, 전부 해석한 뒤에만 실행해 다시 보내도 중복되지 않게 했습니다.
+DBMS가 먼저 푼 문제는 데이터의 모양입니다. 어떤 열이 몇 번째 칸에 있는지를 여러 코드가 각자 알고 있으면, 열 하나가 추가되거나 바뀔 때 그 파일을 읽는 코드를 전부 고쳐야 합니다. 그래서 파일의 모양은 SQL 처리기 한 곳만 알게 했습니다. 다른 코드는 열 이름으로 요청하고, 열 이름을 칸 번호로 바꾸는 일과 쓰기 전에 열과 타입을 확인하는 일은 처리기가 맡습니다.
 
-서버가 요청을 하나씩 받으면 느린 손님 하나가 모두를 멈추기 때문에, 여러 요청을 함께 받도록 스레드 풀을 만들었습니다. 여러 요청을 동시에 처리하자 두 INSERT가 같은 id를 받는 문제가 생겨 lock을 걸었습니다. lock 때문에 실행은 한 줄로 서는데 쿼리가 느리면 줄이 길어져서, 파일 위치를 바로 찾을 수 있는 목차(인덱스)를 만들었습니다. 키 하나만 찾는 해시 테이블과 달리 범위로도 찾을 수 있어서 B+ 트리를 골랐습니다.
+여러 요청을 동시에 처리하자 두 INSERT가 같은 id를 받아서 DBMS도 lock을 걸었습니다. 그런데 mini-redis와 달리 lock 안의 일이 깁니다. 파일을 읽고 써야 하고, 목차가 없으면 100만 건을 처음부터 훑습니다(1,364ms). 그래서 파일 위치를 바로 찾는 목차(인덱스)로 lock 안의 일을 줄였습니다(0.032ms). 키 하나만 찾는 해시 테이블과 달리 범위로도 찾을 수 있어서 B+ 트리를 골랐습니다.
+
+같은 이유로 요청마다 스레드를 만들지 않았습니다. lock을 빼면 id가 겹치므로 실행은 한 번에 하나씩일 수밖에 없고, 그래서 스레드를 늘려도 빨라지지 않고 lock 앞의 줄만 길어집니다. 그래서 받을 수 있는 양(스레드 4개 + 대기열 16칸)을 정해 두고, 넘치는 요청에는 바로 503으로 "바쁘다"고 답합니다. 줄이 끝없이 길어져 모두가 오래 기다리다 실패하는 대신, 받은 요청은 제때 처리하고 못 받는 요청은 즉시 알려 줍니다.
+
+<sub>스레드는 느린 연결(요청을 천천히 보내는 클라이언트)보다 많아야 남는 스레드가 다른 요청을 받으므로 4개로 정했습니다(느린 연결 3개까지 견딤, [측정](#왜-기본-스레드는-4개인가요)). 대기열은 짧으면 거절이 많고 길면 오래 기다리므로 그 사이에서 16칸으로 정했습니다([D35](docs/eungi/DECISIONS.md#step15)). 대기열은 직접 만들었습니다. 파이썬의 `ThreadPoolExecutor`는 대기열에 끝이 없어 거절을 못 해서, 요청 1000개를 보내니 쌓이기만 하다 386개가 시간 초과로 실패했습니다. 직접 만든 대기열은 차는 순간 503을 보내 1.9초 만에 정리했습니다([D34](docs/eungi/DECISIONS.md#step15)). lock을 하나만 둔 것도 측정으로 정했습니다. 읽기는 함께, 쓰기만 혼자 하는 lock도 만들어 봤지만, 파이썬은 GIL 때문에 한 번에 한 스레드만 파이썬 코드를 돌려서 오히려 4~8배 느렸습니다([STEP16](docs/eungi/STEP16.md)).</sub>
 
 ```sql
 INSERT INTO users (name, age) VALUES ('현지', 25);   -- 저장: users.tbl 파일에 한 줄 추가 (id는 자동으로 1)
@@ -56,14 +60,14 @@ curl -s -X POST localhost:8000/query -d '{"sql": "SELECT * FROM users WHERE id >
 curl -s localhost:8000/stats               # 스레드·대기열 상태, 503으로 돌려보낸 수
 ```
 
-<details>
-<summary>동시 요청 · 503 재현 · lock 시연 · CLI · 테스트</summary>
-
 **동시 요청 6개: Thread Pool과 lock**
 ```bash
 for i in 1 2 3 4 5 6; do curl -s -X POST http://localhost:8000/query -d "{\"sql\": \"INSERT INTO users (name, age) VALUES ('u$i', $i);\"}" & done; wait
 ```
-응답의 `id`는 겹치지 않고, 서버 로그에는 `[worker-1]`~`[worker-4]`가 섞여 나옵니다.
+응답의 `id`는 겹치지 않고(lock), 서버 로그에는 `[worker-1]`~`[worker-4]`가 섞여 나옵니다(Thread Pool).
+
+<details>
+<summary>503 재현 · lock 시연 · CLI</summary>
 
 **대기열이 차면 503**
 ```bash
@@ -84,13 +88,6 @@ python3 -m minidb q.sql --data-dir /tmp/mydb --schema data/schema.json
 ```
 종료 코드: 0 성공, 1 입력 문제(파일 없음, 문법 오류), 2 실행 문제(없는 테이블, 타입 불일치, 손상된 행). 결과는 표준 출력, 오류는 표준 에러.
 
-**테스트**
-```bash
-pip install -r requirements-dev.txt && pytest   # 313개 (SQL 처리기·B+ 트리·엔진·서버)
-python3 checks/check_errors.py                  # 오류 응답 (400·404·405·408·413·500·503)
-python3 checks/check_guard.py                   # 엣지 방어 (느린 연결, Content-Length, 끄기)
-```
-
 </details>
 
 🎮 [`docs/study/threadpool_simulator.html`](docs/study/threadpool_simulator.html)을 내려받아 브라우저로 열면, 스레드 4개가 대기열에서 요청을 꺼내 가고, lock 앞에서 한 명씩 줄을 서고, 다 차면 503이 나는 모습을 눌러 볼 수 있습니다.
@@ -107,6 +104,56 @@ python3 checks/check_guard.py                   # 엣지 방어 (느린 연결, 
 파이썬의 `ThreadPoolExecutor`는 내부 대기열에 끝이 없어서, 요청 1000개를 한꺼번에 보내니 964개가 쌓이고 386개가 시간 초과로 실패했습니다. 직접 만든 Pool은 16칸이 차는 순간 나머지에 503을 보내 1.9초 만에 끝났습니다 ([D34](docs/eungi/DECISIONS.md#step15)).
 
 [^1]: `python3 bench/load_test.py B`. 연결만 열고 1초 동안 본문을 보내지 않는 느린 연결 K개와 빠른 요청 60개를 섞어 보냄. 느린 연결이 스레드 수보다 적으면 빠른 요청은 약 1ms에 답을 받고, 같거나 많으면 모든 스레드가 붙잡혀 약 0.6초를 기다림. 단, 전체 스캔 같은 느린 *쿼리*는 lock 안에서 실행되므로 다른 요청도 기다림. 대기열 16칸은 측정으로 찾은 최적값이 아니라 판단(짧으면 503이 많고, 길면 오래 기다림). 재 보니 4칸과 16칸은 거의 같았음 ([D35](docs/eungi/DECISIONS.md#step15)).
+
+### 서버, 엔진, 실행기는 각자 무엇을 하나요?
+
+- **서버** (`server.py`): 연결을 받아 스레드에 나눠 주고, 엔진이 준 결과를 JSON으로 바꿔 돌려줍니다. SQL은 모릅니다.
+- **엔진** (`engine.py`): 요청 **하나**(SQL 글자 한 덩어리)를 받아 lock을 잡고, 파싱해서 나온 문장들을 차례로 실행기에 넘기고, 결과를 dict로 바꿔 모은 뒤 lock을 놓습니다.
+- **실행기** (`minidb/executor.py`): 파싱된 문장 **하나**를 받아 열과 타입을 확인하고, B+ 트리나 전체 스캔으로 파일을 읽거나 써서 `QueryResult`(열 이름, 행, B+ 트리를 썼는지)를 돌려줍니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as 서버<br>server.py
+    participant E as 엔진<br>engine.py
+    participant P as 파서<br>parser.py
+    participant X as 실행기<br>executor.py
+    participant B as B+ 트리<br>bptree.py
+    participant F as 파일<br>storage.py → users.tbl
+
+    S->>E: execute("INSERT ... SELECT ...")<br>SQL 글자 한 덩어리
+    rect rgba(255, 200, 120, 0.25)
+    Note over E,F: 🔒 lock 안: 한 번에 한 요청만
+    E->>P: parse(sql)
+    P-->>E: [Insert 객체, Select 객체]
+    Note over E: results = [ ]
+
+    E->>X: execute(Insert 객체)
+    Note right of X: 열·타입 확인<br>다음 id = 1
+    X->>F: 끝에 한 줄 쓰기 "1 현지 25"
+    F-->>X: 위치 0
+    X->>B: insert(id 1, 위치 0)
+    X-->>E: QueryResult(columns=("id",), rows=((1,),))
+    Note over E: dict로 바꿔 results에 추가<br>results = [ {type: insert, id: 1} ]
+
+    E->>X: execute(Select 객체)
+    X->>B: search(id 1)
+    B-->>X: 위치 0
+    X->>F: 위치 0의 한 줄 읽기
+    F-->>X: (1, "현지", 25)
+    X-->>E: QueryResult(columns, rows, used_index=True)
+    Note over E: dict로 바꿔 results에 추가<br>results = [ {insert...}, {type: select, rows: [[1, 현지, 25]], used_index: true} ]
+    end
+    E-->>S: results (dict 2개짜리 목록)
+    Note over S: json.dumps → HTTP 200 응답
+```
+
+lock을 실행기가 아니라 엔진에 건 이유는 실행기 안의 일이 모두 "몇 단계짜리"라서, 한 줄만 잠가서는 중간에 다른 스레드가 끼는 걸 못 막기 때문입니다.
+
+- **INSERT:** "다음 id 읽기 → 파일에 쓰기 → id 올리기" 세 단계라, 사이에 다른 INSERT가 끼면 같은 id를 받습니다.
+- **SELECT:** 테이블마다 파일 손잡이(열린 파일 객체)가 하나뿐이고, 읽기도 "그 위치로 이동(seek) → 한 줄 읽기" 두 단계입니다. 사이에 다른 스레드가 손잡이를 옮기면(INSERT는 파일 끝으로, 다른 SELECT는 다른 위치로) 엉뚱한 줄을 읽습니다. B+ 트리도 INSERT가 노드를 나누는 도중에 SELECT가 내려가면 반쯤 나뉜 노드를 봅니다.
+
+그래서 엔진은 요청이 들어오면 파싱하기 전에 lock을 잡고, 요청 안의 문장을 모두 실행한 뒤 놓습니다. 한 요청 안의 INSERT와 SELECT 사이에 다른 요청이 끼어들지 않고, 실행기·저장소·B+ 트리는 고치지 않고 그대로 씁니다.
 
 ### 왜 기본 스레드는 4개인가요?
 
@@ -176,6 +223,14 @@ SELECT * FROM users WHERE id > 100;              -- id 범위 조건은 B+ 트�
 | 오류 | 표준 오류 코드(SQLSTATE) | 정해 둔 JSON 코드 `bad_sql`, `busy` 등 | `error.code` 하나로 원인을 구분하고, SQL 실수(400)와 서버 장애(500)를 나눠 내부 경로가 밖으로 나가지 않게 함 |
 
 [^2]: 실제 DB의 행 단위 잠금은 기존 행을 고칠 때 그 행만 잠그는 방식입니다. 우리는 `UPDATE`·`DELETE`가 없어 고칠 행이 없고, INSERT끼리 다투는 건 테이블에 하나뿐인 다음 번호·파일 끝·B+ 트리입니다. SELECT끼리는 동시에 하게(읽기·쓰기 lock) 풀면 빨라질지도 재 봤는데, 1만 줄 전체 스캔 16개를 스레드 4개로 돌리니 209ms → 1,700ms로 오히려 느려졌습니다. 파이썬은 GIL 때문에 한 번에 한 스레드만 코드를 실행해서, 차례를 바꾸는 비용만 늘었습니다 ([STEP16](docs/eungi/STEP16.md)).
+
+## 테스트
+
+```bash
+pip install -r requirements-dev.txt && pytest   # 313개 (SQL 처리기·B+ 트리·엔진·서버)
+python3 checks/check_errors.py                  # 오류 응답 (400·404·405·408·413·500·503)
+python3 checks/check_guard.py                   # 엣지 방어 (느린 연결, Content-Length, 끄기)
+```
 
 ## 한계
 
