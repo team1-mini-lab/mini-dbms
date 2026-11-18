@@ -162,10 +162,10 @@ config:
   themeCSS: "text, tspan { font-weight: 700 !important; }"
   sequence:
     mirrorActors: false
-    actorMargin: 20
+    actorMargin: 40
     width: 130
     height: 95
-    messageMargin: 55
+    messageMargin: 38
     actorFontSize: 26
     messageFontSize: 24
     noteFontSize: 22
@@ -179,29 +179,29 @@ sequenceDiagram
     participant B as B+ 트리<br>bptree.py
     participant F as 파일<br>storage.py<br>→ users.tbl
 
-    S->>E: execute(<br>"INSERT ... SELECT ...")<br>SQL 글자 한 덩어리
+    S->>E: execute("INSERT ... SELECT ...")<br>SQL 글자 한 덩어리
     rect rgba(255, 200, 120, 0.25)
     Note over E,F: 🔒 lock 안: 한 번에 한 요청만
     E->>P: parse(sql)
-    P-->>E: [Insert 객체,<br>Select 객체]
+    P-->>E: [Insert 객체, Select 객체]
 
-    E->>X: execute(<br>Insert 객체)
+    E->>X: execute(Insert 객체)
     Note right of X: 열·타입 확인<br>다음 id = 1
-    X->>F: 끝에 한 줄 쓰기<br>"1 현지 25"
+    X->>F: 끝에 한 줄 쓰기 "1 현지 25"
     F-->>X: 파일 위치<br>(몇 번째 바이트)
-    X->>B: insert(id 1,<br>파일 위치)
-    X-->>E: QueryResult(<br>columns=("id",),<br>rows=((1,),))
+    X->>B: insert(id 1, 파일 위치)
+    X-->>E: QueryResult(<br>columns=("id",), rows=((1,),))
 
-    E->>X: execute(<br>Select 객체)
+    E->>X: execute(Select 객체)
     X->>B: search(id 1)
     B-->>X: 파일 위치
-    X->>F: 그 파일 위치의<br>한 줄 읽기
+    X->>F: 그 파일 위치의 한 줄 읽기
     F-->>X: (1, "현지", 25)
     X-->>E: QueryResult(...,<br>used_index=True)
 
     Note over E: 두 결과를 dict로 바꿔<br>목록으로 묶음
     end
-    E-->>S: [ {type: insert, id: 1},<br>{type: select, ...,<br>used_index: true} ]
+    E-->>S: [ {type: insert, id: 1},<br>{type: select, ..., used_index: true} ]
     Note over S: json.dumps → HTTP 200 응답
 ```
 
