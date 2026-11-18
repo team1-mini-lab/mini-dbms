@@ -17,6 +17,7 @@ Phase 2 (7~9단계, docs/phase2.md): 테이블마다 B+ 트리(id -> 오프셋)�
 from __future__ import annotations
 
 import operator
+import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
@@ -92,6 +93,9 @@ class Executor:
         # 테이블별 다음 id 와 B+ 트리. 테이블을 처음 사용할 때 _load 가 한 번 scan 해서 채운다.
         self._next_ids: dict[str, int] = {}
         self._indexes: dict[str, BPlusTree] = {}
+        # Phase 3: SELECT 들이 동시에 들어와도 트리를 처음 만드는 일은 한 스레드만 하게 한다.
+        # (엔진이 켤 때 예열하므로 보통은 이미 만들어져 있어 이 lock 을 잡지 않는다.)
+        self._load_lock = threading.Lock()
 
     # --- 진입점 -------------------------------------------------------------
 
@@ -153,15 +157,20 @@ class Executor:
         트리는 메모리에만 있으므로 실행기를 새로 만들 때마다(= CLI 를 실행할 때마다) 다시 만든다.
         INSERT 든 SELECT 든 먼저 오는 쪽이 부른다. 이후에는 만들어 둔 것을 돌려준다.
         """
-        if table.name not in self._indexes:
-            index = BPlusTree()
-            max_id = 0
-            for offset, row in self.storage.table(table.name).scan():
-                row_id = int(row[0])
-                index.insert(row_id, offset)
-                max_id = max(max_id, row_id)
-            self._indexes[table.name] = index
-            self._next_ids[table.name] = max_id + 1
+        index = self._indexes.get(table.name)
+        if index is not None:
+            return index
+        with self._load_lock:
+            if table.name not in self._indexes:  # 기다리는 동안 다른 스레드가 만들었을 수 있다
+                index = BPlusTree()
+                max_id = 0
+                for offset, row in self.storage.table(table.name).scan():
+                    row_id = int(row[0])
+                    index.insert(row_id, offset)
+                    max_id = max(max_id, row_id)
+                # 다 만든 뒤에 한 번에 등록한다. 만드는 중인 트리를 다른 스레드가 보지 않게.
+                self._next_ids[table.name] = max_id + 1
+                self._indexes[table.name] = index
         return self._indexes[table.name]
 
     # --- SELECT -------------------------------------------------------------

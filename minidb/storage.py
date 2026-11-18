@@ -7,10 +7,18 @@
   - 파일은 바이너리 모드. 줄이 시작하는 바이트 위치가 그 행의 오프셋이다.
 
 저장소는 SQL 을 모른다. 실행기가 시킬 수 있는 일은 append, scan, read_at 셋뿐이다.
+
+Phase 3 (SQL 병렬 처리): 읽기(scan, read_at)는 여러 스레드가 동시에 해도 안전하다.
+  파일 객체 하나를 같이 쓰면서 seek -> readline 을 하면, 그 사이에 다른 스레드가 seek 해서
+  엉뚱한 위치를 읽는다. 그래서 읽기는 os.pread(fd, 크기, 위치) 로 '어디서 읽을지' 를 매번 직접 넘긴다.
+  pread 는 파일의 현재 위치를 쓰지도 바꾸지도 않는다.
+  쓰기(append)는 여전히 한 번에 하나만 해야 하고, 그건 엔진의 쓰기 lock 이 보장한다.
 """
 
 from __future__ import annotations
 
+import os
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
@@ -22,6 +30,9 @@ Row = tuple[int | str, ...]
 
 _SEP = b"\t"
 _EOL = b"\n"
+
+_LINE_CHUNK = 4096  # read_at 이 한 번에 읽는 크기. 보통 한 행이 다 들어간다.
+_SCAN_CHUNK = 64 * 1024  # scan 이 한 번에 읽는 크기
 
 
 # --- 포맷: 행 <-> 바이트 -------------------------------------------------------
@@ -159,6 +170,26 @@ class TableFile:
             raise StorageError(f"닫힌 테이블입니다: {self.table.name}")
         return self._file
 
+    def _fd(self) -> int:
+        """pread 에 넘길 파일 번호. append 가 매번 flush 하므로 pread 는 쓴 내용을 바로 본다."""
+        return self._fh().fileno()
+
+    def _read_line(self, fd: int, offset: int) -> bytes:
+        """offset 부터 \\n 까지(포함) 읽는다. 끝까지 \\n 이 없으면 있는 만큼만 돌려준다."""
+        parts: list[bytes] = []
+        pos = offset
+        while True:
+            chunk = os.pread(fd, _LINE_CHUNK, pos)
+            if not chunk:
+                break
+            idx = chunk.find(_EOL)
+            if idx != -1:
+                parts.append(chunk[: idx + 1])
+                break
+            parts.append(chunk)
+            pos += len(chunk)
+        return b"".join(parts)
+
     # --- 세 가지 연산 -----------------------------------------------------------
 
     def append(self, row: Row) -> int:
@@ -172,34 +203,39 @@ class TableFile:
         return offset
 
     def scan(self) -> Iterator[tuple[int, Row]]:
-        """모든 행을 (오프셋, 행) 으로 처음부터 차례로 내놓는다. 순회 중 append 금지."""
-        f = self._fh()
-        f.seek(0)
-        offset = 0
+        """모든 행을 (오프셋, 행) 으로 처음부터 차례로 내놓는다. 순회 중 append 금지.
+
+        pread 로 덩어리째 읽어 줄 단위로 자른다. 파일 위치를 쓰지 않으므로 여러 스레드가 동시에 scan 해도 된다.
+        """
+        fd = self._fd()
+        pos = 0  # 다음에 읽을 파일 위치
+        offset = 0  # 지금 줄이 시작하는 파일 위치
+        buf = b""  # 읽었지만 아직 \n 을 못 만난 꼬리
         while True:
-            line = f.readline()
-            if not line:
+            chunk = os.pread(fd, _SCAN_CHUNK, pos)
+            if not chunk:
+                if buf:
+                    # _open 에서 정리했으므로 정상이라면 오지 않는다. 순회 중 외부에서 썼을 때 방어.
+                    raise StorageError(f"테이블 '{self.table.name}' 끝에 쓰다 만 행이 있습니다")
                 return
-            if not line.endswith(_EOL):
-                # _open 에서 정리했으므로 정상이라면 오지 않는다. 순회 중 외부에서 썼을 때 방어.
-                raise StorageError(f"테이블 '{self.table.name}' 끝에 쓰다 만 행이 있습니다")
-            yield offset, decode_row(self.table, line[:-1])
-            offset += len(line)
+            pos += len(chunk)
+            buf += chunk
+            start = 0
+            while (end := buf.find(_EOL, start)) != -1:
+                yield offset, decode_row(self.table, buf[start:end])
+                offset += end + 1 - start
+                start = end + 1
+            buf = buf[start:]
 
     def read_at(self, offset: int) -> Row:
-        """오프셋 위치의 행 하나를 읽는다. 앞의 행들을 거치지 않는다."""
-        f = self._fh()
-        f.seek(0, 2)
-        size = f.tell()
+        """오프셋 위치의 행 하나를 읽는다. 앞의 행들을 거치지 않는다. 여러 스레드가 동시에 불러도 된다."""
+        fd = self._fd()
+        size = os.fstat(fd).st_size
         if offset < 0 or offset >= size:
             raise StorageError(f"테이블 '{self.table.name}' 에 오프셋 {offset} 은 없습니다")
-        if offset > 0:
-            f.seek(offset - 1)
-            if f.read(1) != _EOL:
-                raise StorageError(f"오프셋 {offset} 은 행의 시작이 아닙니다")
-        else:
-            f.seek(0)
-        line = f.readline()
+        if offset > 0 and os.pread(fd, 1, offset - 1) != _EOL:
+            raise StorageError(f"오프셋 {offset} 은 행의 시작이 아닙니다")
+        line = self._read_line(fd, offset)
         if not line.endswith(_EOL):
             raise StorageError(f"테이블 '{self.table.name}' 의 오프셋 {offset} 행이 잘려 있습니다")
         return decode_row(self.table, line[:-1])
@@ -232,6 +268,8 @@ class Storage:
         self.data_dir = Path(data_dir)
         self.catalog = catalog
         self._tables: dict[str, TableFile] = {}
+        # 처음 여는 순간만 보호한다. 두 스레드가 동시에 같은 테이블을 처음 열면 파일을 두 번 열게 되므로.
+        self._open_lock = threading.Lock()
 
     def path_for(self, table_name: str) -> Path:
         return self.data_dir / f"{table_name}.tbl"
@@ -240,9 +278,12 @@ class Storage:
         """처음 요청될 때 연다. 없는 테이블은 카탈로그가 TableNotFoundError 를 낸다."""
         tf = self._tables.get(name)
         if tf is None:
-            table = self.catalog.table(name)
-            tf = TableFile(self.path_for(name), table)
-            self._tables[name] = tf
+            with self._open_lock:
+                tf = self._tables.get(name)  # 기다리는 동안 다른 스레드가 열었을 수 있다
+                if tf is None:
+                    table = self.catalog.table(name)
+                    tf = TableFile(self.path_for(name), table)
+                    self._tables[name] = tf
         return tf
 
     def close(self) -> None:
