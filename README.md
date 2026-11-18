@@ -114,33 +114,34 @@ out_indexes = [table.column_index(n) for n in out_names]   # ["age", "name"] →
 rows = [tuple(row[i] for i in out_indexes) for row in candidates if predicate(row)]
 ```
 
-`server.py`와 `engine.py`에는 칸 번호가 한 번도 나오지 않습니다. SQL을 그대로 넘기고, 열 이름으로 된 결과를 받을 뿐입니다. 그래서 열 순서가 바뀌어도 고칠 곳은 `schema.json` 한 줄과 처리기뿐이고, 쓰기 전에 열 이름과 타입(INT·TEXT)을 확인하는 일도 처리기 한 곳에서 합니다.
+`server.py`와 `engine.py`에는 칸 번호가 한 번도 나오지 않습니다. SQL을 그대로 넘기고, 열 이름으로 된 결과를 받을 뿐입니다. 그래서 열 순서가 바뀌어도 고칠 곳은 `schema.json` 한 줄과 처리기뿐이고, 쓰기 전에 열 이름과 타입(INT·TEXT)을 확인하는 일도 처리기 한 곳에서 합니다. 단, `INSERT INTO users VALUES ('지수', 30)`처럼 열 이름을 생략하면 스키마 순서로 받으므로, 이때는 다시 순서에 기대게 됩니다.
 
 ### Phase 2: 왜 해시 테이블이 아니라 B+ 트리인가요?
 
-`id`가 2~5인 행을 찾을 때:
+DB는 `id = 7`처럼 하나만 묻지 않고, `id > 990000`, `id <= 5`처럼 **범위**와 **순서**를 묻습니다. 그래서 목차는 키를 정렬된 채로 들고 있어야 했습니다.
 
-```mermaid
-flowchart TB
-    subgraph H["해시 테이블 (mini-redis): 2, 3, 4, 5가 칸마다 흩어져 있어 칸을 전부 확인"]
-        direction LR
-        h0["칸 0<br>4 · 8"] ~~~ h1["칸 1<br>1 · 5"] ~~~ h2["칸 2<br>2 · 6"] ~~~ h3["칸 3<br>3 · 7"]
-    end
-    subgraph T["B+ 트리 (mini-dbms): 2를 찾아 내려간 뒤 옆으로 따라가 5에서 멈춤"]
-        direction TB
-        R["3 | 5 | 7"]
-        subgraph LEAF["맨 아래 노드(잎)끼리 이어져 있음"]
-            direction LR
-            l1["1 · 2"] ==> l2["3 · 4"] ==> l3["5 · 6"] -.-> l4["7 · 8<br>안 봄"]
-        end
-        R ==>|"① 2를 찾아 내려감"| LEAF
-    end
-    H ~~~ T
+| 자료구조 | `id = 7` | `id` 2~5 (범위) | 순서대로 들어오는 id |
+| --- | --- | --- | --- |
+| 해시 테이블 (mini-redis) | 가장 빠름 | 키가 칸마다 흩어져 있어 **전부 확인** | 문제없음 |
+| 이진 탐색 트리 | 빠름 | 가능 | 한쪽으로만 길어져 **줄 하나처럼** 됨 |
+| **B+ 트리** | 빠름 (100만 건에 높이 5) | 시작점만 찾고 **옆 노드로 따라감** | 노드가 차면 나뉘며 균형 유지 |
+
+범위 검색은 이렇게 동작합니다 (`minidb/bptree.py`). 노드 안의 키는 정렬돼 있고, 맨 아래 노드(잎)끼리 `next_leaf`로 이어져 있습니다.
+```python
+leaf = self._find_leaf(start)          # 시작값이 있을 잎까지 한 번만 내려감
+i = bisect_left(leaf.keys, start)      # 잎 안에서 시작 위치
+while leaf is not None:
+    while i < len(leaf.keys):
+        if leaf.keys[i] > end:         # 끝값을 넘으면 멈춤
+            return result
+        result.append((leaf.keys[i], leaf.values[i]))
+        i += 1
+    leaf = leaf.next_leaf              # 옆 잎으로 이동
+    i = 0
 ```
 
+실행기는 `WHERE id > 1` 같은 조건을 `range_search(2, ∞)`로 바꿔 부르고, 결과에 `used_index: true`를 붙입니다. id가 아닌 열(`name`, `age`)은 목차가 없어 전체 스캔합니다.
 
-- **해시 테이블:** 키 하나를 찾는 데는 가장 빠르지만 순서를 모릅니다. DB는 `id`가 2~5인 것처럼 범위를 물어서, 맨 아래 노드끼리 이어진 B+ 트리를 골랐습니다. `WHERE id > 1`, `id <= 5`도 B+ 트리의 `range_search`로 찾습니다.
-- **이진 탐색 트리:** 순서는 알지만, id가 1, 2, 3… 순서대로 들어오면 한쪽으로만 길어져 결국 줄 하나처럼 됩니다. B+ 트리는 노드가 차면 나뉘며 균형을 유지해서 100만 건에서도 높이가 5입니다.
 - **메모리에 위치만:** 트리에는 행이 아니라 파일 위치만 담고, 켤 때 데이터 파일로 다시 만들어 항상 일치시킵니다(100만 건에 약 1.9초, 서버는 켤 때 미리 만듦).
 - **직접 만들어 보고 안 한계:** id가 순서대로만 들어와서, 나뉜 왼쪽 노드는 다시 채워지지 않고 절반만 찹니다.
 
