@@ -20,30 +20,7 @@ SELECT * FROM users WHERE id = 1;                   -- 꺼내기: B+ 트리로 �
 
 [→ lock은 어디에](#phase-3-서버엔진실행기를-어떻게-나누고-lock은-어디에-두었나요) · [→ 스레드 수는 왜](#phase-3-스레드는-왜-여럿이고-왜-4개와-16칸인가요)
 
-```mermaid
-%%{init: {"theme": "default", "themeVariables": {"fontSize": "18px"}}}%%
-flowchart TD
-    C["클라이언트 · curl, 브라우저, 다른 서버"]
-    subgraph P3["Phase 3 · server.py: 동시에 받기·보내기 (lock 밖)"]
-        Q["대기열 16칸 · 꽉 차면 503"]
-        W1["스레드 1"]
-        W2["스레드 2"]
-        W3["스레드 3"]
-        W4["스레드 4"]
-    end
-    L{{"🔒 engine.py lock · 한 번에 한 요청"}}
-    subgraph RUN["실행 (lock 안)"]
-        P1["Phase 1 · SQL 처리기: 파서 → 실행기 (열·타입 확인, 경로 선택)"]
-        BT["Phase 2 · B+ 트리 (메모리): id → 파일 위치"]
-        F[("users.tbl · 한 줄에 한 행")]
-    end
-    C -->|"POST /query"| Q
-    Q --> W1 & W2 & W3 & W4
-    W1 & W2 & W3 & W4 -->|"5초 넘게 안 보내면 408"| L
-    L -->|"engine.execute(sql)"| P1
-    P1 -->|"id 조건"| BT -->|"그 줄만 읽기"| F
-    P1 -->|"그 밖의 조건: 전체 스캔"| F
-```
+![클라이언트 → 대기열 → 스레드 4개가 동시에 받고 → 엔진 lock 하나 → SQL 처리기 → id 조건이면 B+ 트리, 아니면 전체 스캔 → users.tbl](docs/images/overview.png)
 
 ## 실행 및 시연
 
@@ -167,38 +144,7 @@ while leaf is not None:
 - **실행기는 문장 하나만.** 열·타입 확인, B+ 트리 또는 전체 스캔, 파일 읽고 쓰기. Phase 1·2 코드를 그대로 씁니다.
 - **lock은 엔진 입구 한 곳.** 요청 하나(문장 여러 개)를 통째로 묶을 수 있고, 실행기는 고치지 않아도 되고, 스레드가 없는 CLI에는 붙지 않습니다.
 
-```mermaid
-%%{init: {"theme": "default", "themeVariables": {"fontSize": "18px"}}}%%
-sequenceDiagram
-    autonumber
-    participant S as 서버
-    participant E as 엔진
-    participant P as 파서
-    participant X as 실행기
-    participant B as B+ 트리
-    participant F as users.tbl
-
-    S->>E: execute(SQL 덩어리)
-    rect rgba(255, 200, 120, 0.25)
-    Note over E,F: 🔒 lock 안: 한 번에 한 요청만
-    E->>P: parse
-    P-->>E: [Insert, Select]
-    E->>X: Insert
-    X->>F: 끝에 한 줄 쓰기
-    F-->>X: 위치 0
-    X->>B: id 1 → 위치 0
-    X-->>E: 새 id 1
-    Note over E: dict로 바꿔 목록에 추가
-    E->>X: Select id = 1
-    X->>B: id 1 찾기
-    B-->>X: 위치 0
-    X->>F: 위치 0 한 줄 읽기
-    F-->>X: 1, 현지, 25
-    X-->>E: 찾은 행
-    Note over E: dict로 바꿔 목록에 추가
-    end
-    E-->>S: 결과 목록 → JSON 응답
-```
+![요청 하나가 서버 → 엔진(lock) → 파서 → 실행기 → B+ 트리·파일을 지나는 순서](docs/images/request_flow.png)
 
 **lock이 지키는 것:** 여러 요청이 함께 쓰는 다음 id, B+ 트리, 파일 객체입니다. INSERT("다음 id 읽기 → 쓰기 → id 올리기")나 SELECT("위치로 이동 → 읽기") 사이에 다른 스레드가 끼면 id가 겹치거나 엉뚱한 줄을 읽습니다.
 
