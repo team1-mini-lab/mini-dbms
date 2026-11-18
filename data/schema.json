@@ -1,0 +1,9 @@
+{
+  "students": {
+    "columns": [
+      {"name": "id",    "type": "INT"},
+      {"name": "name",  "type": "TEXT"},
+      {"name": "grade", "type": "INT"}
+    ]
+  }
+}
