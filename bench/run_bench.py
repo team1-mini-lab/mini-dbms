@@ -10,6 +10,7 @@
   3. 무작위 id 여러 개로 같은 줄을 두 방식으로 찾아 한 번 평균 시간을 잰다
      - SELECT * FROM users WHERE id = i           -> used_index True
      - SELECT * FROM users WHERE name = 'user{i}' -> used_index False
+  4. 마지막 1,000줄을 범위로 찾는다: WHERE id > n-1000 을 B+ 트리(range_search)와 전체 스캔(use_index=False)으로
 시간은 time.perf_counter()로 잰다. 결과는 파싱 + 실행 전체 기준이다.
 
 somang 원본과 다른 점: Engine 대신 minidb 의 Catalog / Storage / Executor 를 직접 만들고,
@@ -46,15 +47,15 @@ USERS_SCHEMA = {
 }
 
 
-def run_sql(executor, sql):
+def run_sql(executor, sql, use_index=True):
     (stmt,) = parse(sql)
-    return executor.execute(stmt)
+    return executor.execute(stmt, use_index=use_index)
 
 
-def avg_ms(executor, sql_list):
+def avg_ms(executor, sql_list, use_index=True):
     start = time.perf_counter()
     for sql in sql_list:
-        run_sql(executor, sql)
+        run_sql(executor, sql, use_index)
     return (time.perf_counter() - start) / len(sql_list) * 1000
 
 
@@ -92,17 +93,26 @@ def bench(n, samples):
             id_ms = avg_ms(executor, [f"SELECT * FROM users WHERE id = {i};" for i in ids])
             name_ms = avg_ms(executor, [f"SELECT * FROM users WHERE name = 'user{i}';"
                                         for i in ids[:max(3, samples // 10)]])
-        return load_s, start_s, height, id_ms, name_ms
+
+            # 범위: 마지막 1,000줄. 같은 SQL을 B+ 트리와 전체 스캔으로 찾아 결과가 같은지 확인한 뒤 잰다
+            range_sql = f"SELECT * FROM users WHERE id > {n - 1000};"
+            a = run_sql(executor, range_sql)
+            b = run_sql(executor, range_sql, use_index=False)
+            assert a == b and a.used_index and not b.used_index and len(a.rows) == 1000, (len(a.rows), len(b.rows))
+            range_idx_ms = avg_ms(executor, [range_sql] * 10)
+            range_scan_ms = avg_ms(executor, [range_sql] * 3, use_index=False)
+        return load_s, start_s, height, id_ms, name_ms, range_idx_ms, range_scan_ms
 
 
 def main():
     sizes = [int(x) for x in sys.argv[1:]] or [10_000, 100_000, 1_000_000]
-    print("| 건수 | CLI로 넣기 | 첫 조회(B+ 트리 다시 만들기 포함) | 트리 높이 | id로 찾기 (인덱스) | name으로 찾기 (전체 스캔) | 배 |")
-    print("|---:|---:|---:|---:|---:|---:|---:|")
+    print("| 건수 | CLI로 넣기 | 첫 조회(B+ 트리 다시 만들기 포함) | 트리 높이 | id로 찾기 (인덱스) | name으로 찾기 (전체 스캔) | 배 "
+          "| id 범위 1,000줄 (인덱스) | 같은 범위 (전체 스캔) | 배 |")
+    print("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for n in sizes:
-        load_s, start_s, h, id_ms, name_ms = bench(n, samples=100)
+        load_s, start_s, h, id_ms, name_ms, r_idx, r_scan = bench(n, samples=100)
         print(f"| {n:,} | {load_s:.1f}초 | {start_s:.2f}초 | {h} | {id_ms:.3f}ms | {name_ms:.1f}ms "
-              f"| {name_ms / id_ms:,.0f}배 |", flush=True)
+              f"| {name_ms / id_ms:,.0f}배 | {r_idx:.2f}ms | {r_scan:.1f}ms | {r_scan / r_idx:,.0f}배 |", flush=True)
 
 
 if __name__ == "__main__":
