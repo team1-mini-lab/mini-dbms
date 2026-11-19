@@ -41,7 +41,7 @@ def prepare_data():
     shutil.copy(os.path.join(ROOT, "data", "schema.json"), tmp)
     with open(os.path.join(tmp, "users.tbl"), "w", encoding="utf-8") as f:
         for i in range(1, ROWS + 1):
-            f.write(json.dumps([i, f"user{i}", 20 + i % 50], ensure_ascii=False) + "\n")
+            f.write(f"{i}\tuser{i}\t{20 + i % 50}\n")
     return tmp
 
 
